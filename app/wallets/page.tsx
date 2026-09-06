@@ -40,8 +40,13 @@ export default async function WalletsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Кошельки</h1>
-      {/* Один проект — вкладки не нужны: переключать не на что. */}
-      <WalletsBoard canManage={access.canEdit} lockTo={mine.length === 1 ? mine[0] : undefined} />
+      {/* Один проект — вкладки не нужны: переключать не на что.
+          Кошельки партнёр ведёт сам, поэтому право на правку здесь не от
+          уровня доступа к направлению, а от роли: сервисы его проекта
+          оплачены из его денег, и вписывать пополнения через владельца
+          значило бы держать посредника там, где он не нужен. Рамки
+          направления всё равно проверяет ручка. */}
+      <WalletsBoard canManage lockTo={mine.length === 1 ? mine[0] : undefined} />
     </div>
   );
 }

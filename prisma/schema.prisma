@@ -457,6 +457,13 @@ model Recommendation {
 // и без ручного ввода эта цифра не появится ниоткуда.
 model Wallet {
   service   String    @id // router | openai | eleven | heygen | fal
+  // Кошелёк, заведённый руками, живёт целиком здесь: справочник в коде знает
+  // только те сервисы, что подключены к сбору замеров, а платят люди и за то,
+  // чего в нём нет. Пустой project означает «спроси справочник» — так строки,
+  // накопленные до появления ручных кошельков, остаются на своих местах.
+  project   String    @default("")
+  custom    Boolean   @default(false) // заведён руками — можно удалить
+  blocks    Boolean   @default(false) // пустой кошелёк останавливает работу
   title     String    @default("")
   ok        Boolean   @default(true) // можно ли платить прямо сейчас
   low       Boolean   @default(false) // на исходе

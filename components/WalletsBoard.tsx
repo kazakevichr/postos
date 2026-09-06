@@ -17,7 +17,7 @@ type Row = {
   service: string; title: string; ok: boolean; low: boolean;
   left: number | null; unit: string; spent: number | null; note: string;
   link: string; manual: number | null; manualAt: string | null;
-  at: string | null; fresh: boolean; topups: number;
+  at: string | null; fresh: boolean; topups: number; custom: boolean;
   balance: number | null; source: string; blocks: boolean;
 };
 type Topup = {
@@ -53,6 +53,10 @@ export default function WalletsBoard({
   lockTo?: string;
 }) {
   const [project, setProject] = useState(lockTo || "superfit");
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newLink, setNewLink] = useState("");
+  const [newUnit, setNewUnit] = useState("$");
   const [projects, setProjects] = useState<{ id: string; title: string }[]>([]);
   const [labels, setLabels] = useState<Labels | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -83,6 +87,31 @@ export default function WalletsBoard({
     setLoaded(true);
   }
   useEffect(() => { load(project); }, [project]);
+
+  // Заведение кошелька руками: платят и за сервисы, которых нет в справочнике
+  // сбора, и учесть их иначе нечем.
+  async function addWallet() {
+    if (!canManage || !newTitle.trim()) return;
+    setBusy("add"); setNote("");
+    const r = await fetch("/api/factory/wallets", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: newTitle, link: newLink, unit: newUnit || "$", project }),
+    });
+    const j = await r.json();
+    if (apply(j)) { setNewTitle(""); setNewLink(""); setNewUnit("$"); setAdding(false); }
+    else setNote(j.error || "не получилось");
+    setBusy("");
+  }
+
+  async function removeWallet(service: string, title: string) {
+    if (!canManage) return;
+    if (!window.confirm(`Удалить кошелёк «${title}» вместе с его пополнениями?`)) return;
+    setBusy(`delw${service}`); setNote("");
+    const r = await fetch(`/api/factory/wallets?service=${encodeURIComponent(service)}`, { method: "DELETE" });
+    const j = await r.json();
+    if (!apply(j)) setNote(j.error || "не получилось");
+    setBusy("");
+  }
 
   async function send(body: any, tag: string) {
     if (!canManage) return;
@@ -143,6 +172,51 @@ export default function WalletsBoard({
         </div>
       )}
 
+      {canManage && (
+        <div className="card">
+          {!adding ? (
+            <button className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50"
+                    onClick={() => { setAdding(true); setNote(""); }}>
+              + Добавить кошелёк
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div className="font-medium">Новый кошелёк</div>
+              <div className="text-xs text-gray-500">
+                Сервис, который вы оплачиваете сами: замеры по нему не приходят, остаток и
+                пополнения вносятся руками.
+              </div>
+              <div className="flex flex-wrap gap-2 items-end">
+                <label className="text-sm flex-1 min-w-[12rem]">
+                  <div className="text-xs text-gray-500 mb-1">Название</div>
+                  <input className="border rounded-lg px-2 py-1.5 w-full" value={newTitle}
+                         onChange={(e) => setNewTitle(e.target.value)} placeholder="Например, Midjourney" />
+                </label>
+                <label className="text-sm flex-1 min-w-[12rem]">
+                  <div className="text-xs text-gray-500 mb-1">Ссылка на кабинет (необязательно)</div>
+                  <input className="border rounded-lg px-2 py-1.5 w-full" value={newLink}
+                         onChange={(e) => setNewLink(e.target.value)} placeholder="https://…" />
+                </label>
+                <label className="text-sm">
+                  <div className="text-xs text-gray-500 mb-1">В чём остаток</div>
+                  <input className="border rounded-lg px-2 py-1.5 w-24" value={newUnit}
+                         onChange={(e) => setNewUnit(e.target.value)} placeholder="$" />
+                </label>
+                <button className="px-3 py-1.5 rounded-lg text-sm bg-brand-600 text-white disabled:opacity-50"
+                        disabled={busy !== "" || !newTitle.trim()} onClick={addWallet}>
+                  Добавить
+                </button>
+                <button className="px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-50"
+                        onClick={() => { setAdding(false); setNote(""); }}>
+                  Отмена
+                </button>
+              </div>
+              {note && <div className="text-sm text-red-600">{note}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -191,6 +265,15 @@ export default function WalletsBoard({
                       <button className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
                               onClick={() => setOpen(open === r.service ? "" : r.service)}>
                         {open === r.service ? "закрыть" : "внести"}
+                      </button>
+                    )}
+                    {/* Удаляется только заведённое руками: справочный кошелёк
+                        вернётся через час со следующим замером. */}
+                    {canManage && r.custom && (
+                      <button className="text-xs px-2 py-1 ml-2 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              disabled={busy !== ""}
+                              onClick={() => removeWallet(r.service, r.title)}>
+                        удалить
                       </button>
                     )}
                   </td>

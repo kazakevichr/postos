@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { accessBrands, currentAccess } from "@/lib/access";
 import { notifyRoles } from "@/lib/telegram";
@@ -8,7 +6,8 @@ import {
   DEFAULT_PROJECT,
   PROJECTS,
   SERVICES,
-  projectOf,
+  freeServiceId,
+  projectOfAsync,
   stateOf,
   topups,
   wallets,
@@ -28,9 +27,19 @@ async function visibleProjects(): Promise<string[] | null> {
   if (!access || !["OWNER", "PARTNER"].includes(access.role)) return null;
   return walletProjectsOf(await accessBrands(access));
 }
-async function owner() {
-  const s = await getServerSession(authOptions);
-  return s && s.user.role === "OWNER" ? s : null;
+/**
+ * Кто правит кошельки и какие.
+ *
+ * Партнёр здесь не наблюдатель: сервисы его направления оплачены из его же
+ * денег, и вести их счёт — его работа, а не одолжение. Поэтому он заводит,
+ * удаляет и пополняет — но только в своих рамках; за них не пускает уже не
+ * интерфейс, а эта проверка.
+ */
+async function editor(): Promise<{ name: string; projects: string[] } | null> {
+  const access = await currentAccess();
+  if (!access || !["OWNER", "PARTNER"].includes(access.role)) return null;
+  const projects = walletProjectsOf(await accessBrands(access));
+  return projects.length ? { name: access.name, projects } : null;
 }
 function byKey(req: Request) {
   const need = process.env.IG_HOST_KEY;
@@ -70,8 +79,39 @@ async function picture(project: string, allowed: string[]) {
 // раздел превратится в спам и настоящее предупреждение потеряется среди
 // одинаковых.
 export async function POST(req: Request) {
-  if (!byKey(req)) return new NextResponse("forbidden", { status: 403 });
   const b = await req.json().catch(() => null);
+
+  // Тот же адрес заводит кошелёк руками: человек присылает название, машина —
+  // массив замеров. Платят люди и за сервисы, которых нет в справочнике, и
+  // единственный способ их учесть — вписать самому.
+  if (!byKey(req)) {
+    const who = await editor();
+    if (!who) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const title = String(b?.title || "").trim().slice(0, 120);
+    if (!title) return NextResponse.json({ error: "нужно название" }, { status: 400 });
+
+    const project = String(b?.project || who.projects[0]);
+    if (!who.projects.includes(project)) {
+      return NextResponse.json({ error: "чужое направление" }, { status: 403 });
+    }
+
+    const service = await freeServiceId(project, title);
+    await prisma.wallet.create({
+      data: {
+        service,
+        project,
+        custom: true,
+        title,
+        unit: String(b?.unit || "$").slice(0, 20),
+        link: String(b?.link || "").slice(0, 300),
+        blocks: Boolean(b?.blocks),
+        note: "замер ещё не приходил",
+      },
+    });
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
+  }
+
   const list = Array.isArray(b?.wallets) ? b.wallets : null;
   if (!list) return NextResponse.json({ error: "нужен массив wallets" }, { status: 400 });
 
@@ -142,14 +182,20 @@ export async function GET(req: Request) {
 //  · {service, manual}        — вписать текущий остаток;
 //  · {service, manual: null}  — стереть ручной остаток и вернуться к расчёту.
 export async function PUT(req: Request) {
-  const s = await owner();
-  if (!s) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const who = await editor();
+  if (!who) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const b = await req.json().catch(() => null);
   const service = String(b?.service || "").trim();
-  if (!SERVICES[service]) {
+  const known =
+    Boolean(SERVICES[service]) ||
+    Boolean(await prisma.wallet.findUnique({ where: { service }, select: { service: true } }));
+  if (!known) {
     return NextResponse.json({ error: "неизвестный сервис" }, { status: 400 });
   }
-  const project = projectOf(service);
+  const project = await projectOfAsync(service);
+  if (!who.projects.includes(project)) {
+    return NextResponse.json({ error: "чужое направление" }, { status: 403 });
+  }
 
   if (b?.amount != null) {
     const amount = Number(b.amount);
@@ -160,7 +206,7 @@ export async function PUT(req: Request) {
       data: {
         service,
         amount,
-        who: s.user.name || s.user.email || "",
+        who: who.name,
         note: String(b.note || "").slice(0, 200),
         // Дату можно задать задним числом: пополнение вносится не в ту же
         // минуту, когда сделано, а когда до раздела дошли руки.
@@ -171,14 +217,19 @@ export async function PUT(req: Request) {
     // оставлять его — значит показывать вчерашнюю цифру как сегодняшнюю.
     await prisma.wallet.upsert({
       where: { service },
-      create: { service, title: SERVICES[service].title, unit: SERVICES[service].unit },
+      create: {
+        service, project,
+        title: SERVICES[service]?.title || service,
+        unit: SERVICES[service]?.unit || "$",
+      },
       update: { manual: null, manualAt: null },
     });
+    const title = SERVICES[service]?.title || service;
     void notifyRoles(
       ["OWNER"],
-      `💳 [${PROJECTS[project].title}] <b>${SERVICES[service].title}</b>: пополнение ${money(amount)}`,
+      `💳 [${PROJECTS[project].title}] <b>${title}</b>: пополнение ${money(amount)}`,
     );
-    return NextResponse.json({ ok: true, ...(await picture(project, Object.keys(PROJECTS))) });
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
   if ("manual" in (b || {})) {
@@ -189,12 +240,14 @@ export async function PUT(req: Request) {
     await prisma.wallet.upsert({
       where: { service },
       create: {
-        service, title: SERVICES[service].title, unit: SERVICES[service].unit,
+        service, project,
+        title: SERVICES[service]?.title || service,
+        unit: SERVICES[service]?.unit || "$",
         manual, manualAt: manual == null ? null : new Date(),
       },
       update: { manual, manualAt: manual == null ? null : new Date() },
     });
-    return NextResponse.json({ ok: true, ...(await picture(project, Object.keys(PROJECTS))) });
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
   return NextResponse.json({ error: "нужны amount или manual" }, { status: 400 });
@@ -203,14 +256,41 @@ export async function PUT(req: Request) {
 // Ошиблись в сумме — пополнение удаляется. Правки на месте нет намеренно:
 // история денег должна читаться как список событий, а не как текущее мнение.
 export async function DELETE(req: Request) {
-  if (!(await owner())) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const id = Number(new URL(req.url).searchParams.get("id") || 0);
+  const who = await editor();
+  if (!who) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const url = new URL(req.url);
+
+  // Удаление кошелька, заведённого руками, — вместе с его пополнениями:
+  // деньги, внесённые по несуществующему сервису, не история, а мусор.
+  // Справочные кошельки не удаляются: их присылает сбор замеров, и строка
+  // вернулась бы через час сама, только уже без названия и ссылки.
+  const service = String(url.searchParams.get("service") || "").trim();
+  if (service) {
+    const row = await prisma.wallet.findUnique({ where: { service } });
+    if (!row || !row.custom) {
+      return NextResponse.json(
+        { error: "этот кошелёк ведёт сбор замеров — его нельзя удалить" },
+        { status: 400 }
+      );
+    }
+    const project = row.project || DEFAULT_PROJECT;
+    if (!who.projects.includes(project)) {
+      return NextResponse.json({ error: "чужое направление" }, { status: 403 });
+    }
+    await prisma.walletTopup.deleteMany({ where: { service } });
+    await prisma.wallet.delete({ where: { service } });
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
+  }
+
+  const id = Number(url.searchParams.get("id") || 0);
   if (!id) return NextResponse.json({ error: "нужен id" }, { status: 400 });
   // Проект узнаём ДО удаления: после него сервис уже не спросить, а вернуть
   // нужно картину того же раздела, из которого нажали «удалить».
   const row = await prisma.walletTopup.findUnique({ where: { id } });
-  const all = Object.keys(PROJECTS);
-  const project = row ? projectOf(row.service) : askedProject(req, all);
+  const project = row ? await projectOfAsync(row.service) : askedProject(req, who.projects);
+  if (row && !who.projects.includes(project)) {
+    return NextResponse.json({ error: "чужое направление" }, { status: 403 });
+  }
   await prisma.walletTopup.delete({ where: { id } }).catch(() => {});
-  return NextResponse.json({ ok: true, ...(await picture(project, all)) });
+  return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
 }

@@ -32,6 +32,7 @@ export type WalletRow = {
   balance: number | null;  // остаток к показу
   source: string;          // откуда взят остаток
   blocks: boolean;         // останавливает ли работу
+  custom: boolean;         // заведён руками — можно удалить
   state: string;
 };
 
@@ -233,14 +234,67 @@ export const SERVICES: Record<
   },
 };
 
-/** Идентификаторы сервисов проекта — в том порядке, в каком идут в таблице. */
+/** Справочные сервисы проекта — в том порядке, в каком идут в таблице. */
 export function servicesOf(project: string): string[] {
   return Object.keys(SERVICES).filter((id) => SERVICES[id].project === project);
+}
+
+/** Все сервисы проекта: справочные плюс заведённые руками. */
+export async function allServicesOf(project: string): Promise<string[]> {
+  const custom = await prisma.wallet.findMany({
+    where: { custom: true, project },
+    orderBy: { service: "asc" },
+    select: { service: true },
+  });
+  return [...servicesOf(project), ...custom.map((c) => c.service)];
 }
 
 /** Проект сервиса; неизвестный сервис считается проектом по умолчанию. */
 export function projectOf(service: string): string {
   return SERVICES[service]?.project || DEFAULT_PROJECT;
+}
+
+/** Проект сервиса с учётом ручных кошельков — им он записан в строке. */
+export async function projectOfAsync(service: string): Promise<string> {
+  if (SERVICES[service]) return SERVICES[service].project;
+  const row = await prisma.wallet.findUnique({
+    where: { service },
+    select: { project: true },
+  });
+  return row?.project || DEFAULT_PROJECT;
+}
+
+/**
+ * Имя для нового кошелька: из названия, латиницей, с приставкой проекта.
+ *
+ * Проект зашит в сам идентификатор, как и у справочных сервисов, — тогда
+ * строки двух направлений не столкнутся первичным ключом. Занятое имя
+ * получает номер: два кошелька «Роутер» у одного проекта — не ошибка
+ * человека, а обычная жизнь.
+ */
+export async function freeServiceId(project: string, title: string): Promise<string> {
+  const translit: Record<string, string> = {
+    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i",
+    й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
+    у: "u", ф: "f", х: "h", ц: "c", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "",
+    э: "e", ю: "yu", я: "ya",
+  };
+  const slug =
+    [...title.toLowerCase()]
+      .map((ch) => translit[ch] ?? ch)
+      .join("")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 30) || "wallet";
+
+  const base = `${project}_${slug}`;
+  for (let n = 0; n < 100; n++) {
+    const id = n ? `${base}_${n + 1}` : base;
+    if (SERVICES[id]) continue;
+    const busy = await prisma.wallet.findUnique({ where: { service: id }, select: { service: true } });
+    if (!busy) return id;
+  }
+  return `${base}_${Date.now()}`;
 }
 
 // Сколько замер считается свежим. Замеры приходят раз в час; три часа — это
@@ -254,7 +308,7 @@ export function stateOf(w: { ok: boolean; low: boolean }): string {
 
 /** Полная картина по кошелькам проекта: замеры + ручной ввод + пополнения. */
 export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
-  const ids = servicesOf(project);
+  const ids = await allServicesOf(project);
   const [rows, topups] = await Promise.all([
     prisma.wallet.findMany({ where: { service: { in: ids } } }),
     prisma.walletTopup.groupBy({
@@ -268,8 +322,17 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
   const now = Date.now();
 
   return ids.map((service) => {
-    const meta = SERVICES[service];
     const w = byService.get(service);
+    // У ручного кошелька справочника нет — всё, что о нём известно, записано
+    // в самой строке.
+    const meta = SERVICES[service] || {
+      project,
+      title: w?.title || service,
+      unit: w?.unit || "$",
+      blocks: w?.blocks ?? false,
+      link: w?.link || "",
+      api: "",
+    };
     const paid = topupSum.get(service) || 0;
     const at = w?.at ? w.at.toISOString() : null;
     const fresh = Boolean(w?.at && now - w.at.getTime() < FRESH_MS);
@@ -300,7 +363,7 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
       ok: w?.ok ?? true,
       low: w?.low ?? false,
       left: w?.left ?? null,
-      unit: meta.unit,
+      unit: w?.unit || meta.unit,
       spent: w?.spent ?? null,
       note: w?.note || (w ? "" : "замер ещё не приходил"),
       link: w?.link || meta.link,
@@ -311,7 +374,8 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
       topups: Math.round(paid * 100) / 100,
       balance,
       source,
-      blocks: meta.blocks,
+      blocks: SERVICES[service] ? meta.blocks : w?.blocks ?? false,
+      custom: w?.custom ?? false,
       state: w?.state || "",
     };
   });
@@ -320,14 +384,24 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
 /** История пополнений проекта — новые сверху. */
 export async function topups(project = DEFAULT_PROJECT, limit = 50) {
   const rows = await prisma.walletTopup.findMany({
-    where: { service: { in: servicesOf(project) } },
+    where: { service: { in: await allServicesOf(project) } },
     orderBy: { at: "desc" },
     take: Math.min(limit, 200),
   });
+  // Названия ручных кошельков живут в их строках, а не в справочнике.
+  const titles = new Map(
+    (
+      await prisma.wallet.findMany({
+        where: { service: { in: rows.map((r) => r.service) } },
+        select: { service: true, title: true },
+      })
+    ).map((w) => [w.service, w.title])
+  );
+
   return rows.map((r) => ({
     id: r.id,
     service: r.service,
-    title: SERVICES[r.service]?.title || r.service,
+    title: SERVICES[r.service]?.title || titles.get(r.service) || r.service,
     amount: r.amount,
     at: r.at.toISOString(),
     who: r.who,
