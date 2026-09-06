@@ -232,6 +232,23 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
+  // Пометка «не пользуемся»: строка уходит из рабочего списка и перестаёт
+  // поднимать тревогу. Замеры по ней приходят и дальше, история пополнений
+  // остаётся — вернуть в строй можно тем же переключателем.
+  if ("inactive" in (b || {})) {
+    const inactive = Boolean(b.inactive);
+    await prisma.wallet.upsert({
+      where: { service },
+      create: {
+        service, project, inactive,
+        title: SERVICES[service]?.title || service,
+        unit: SERVICES[service]?.unit || "$",
+      },
+      update: { inactive },
+    });
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
+  }
+
   if ("manual" in (b || {})) {
     const manual = b.manual == null || b.manual === "" ? null : Number(b.manual);
     if (manual != null && !Number.isFinite(manual)) {
@@ -250,7 +267,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
-  return NextResponse.json({ error: "нужны amount или manual" }, { status: 400 });
+  return NextResponse.json({ error: "нужны amount, manual или inactive" }, { status: 400 });
 }
 
 // Ошиблись в сумме — пополнение удаляется. Правки на месте нет намеренно:

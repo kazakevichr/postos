@@ -17,7 +17,7 @@ type Row = {
   service: string; title: string; ok: boolean; low: boolean;
   left: number | null; unit: string; spent: number | null; note: string;
   link: string; manual: number | null; manualAt: string | null;
-  at: string | null; fresh: boolean; topups: number; custom: boolean;
+  at: string | null; fresh: boolean; topups: number; custom: boolean; inactive: boolean;
   balance: number | null; source: string; blocks: boolean;
 };
 type Topup = {
@@ -57,6 +57,7 @@ export default function WalletsBoard({
   const [newTitle, setNewTitle] = useState("");
   const [newLink, setNewLink] = useState("");
   const [newUnit, setNewUnit] = useState("$");
+  const [showInactive, setShowInactive] = useState(false);
   const [projects, setProjects] = useState<{ id: string; title: string }[]>([]);
   const [labels, setLabels] = useState<Labels | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -103,6 +104,20 @@ export default function WalletsBoard({
     setBusy("");
   }
 
+  // Не удаление, а «этим больше не пользуемся»: строка уходит из рабочего
+  // списка, но замеры и история остаются, и вернуть её можно одним нажатием.
+  async function setInactive(service: string, inactive: boolean) {
+    if (!canManage) return;
+    setBusy(`act${service}`); setNote("");
+    const r = await fetch("/api/factory/wallets", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ service, inactive }),
+    });
+    const j = await r.json();
+    if (!apply(j)) setNote(j.error || "не получилось");
+    setBusy("");
+  }
+
   async function removeWallet(service: string, title: string) {
     if (!canManage) return;
     if (!window.confirm(`Удалить кошелёк «${title}» вместе с его пополнениями?`)) return;
@@ -136,8 +151,13 @@ export default function WalletsBoard({
 
   if (!loaded) return <div className="card text-sm text-gray-500">Загружаю кошельки…</div>;
 
-  const stopped = rows.filter((r) => r.at && r.fresh && !r.ok && r.blocks);
-  const dry = rows.filter((r) => r.at && r.fresh && !r.ok && !r.blocks);
+  // Кошелёк, помеченный «не пользуемся», не поднимает тревогу: пустой счёт
+  // сервиса, который выключили сознательно, — не поломка.
+  const live = rows.filter((r) => !r.inactive);
+  const idle = rows.filter((r) => r.inactive);
+  const shown = showInactive ? rows : live;
+  const stopped = live.filter((r) => r.at && r.fresh && !r.ok && r.blocks);
+  const dry = live.filter((r) => r.at && r.fresh && !r.ok && !r.blocks);
 
   return (
     <div className="space-y-4">
@@ -217,6 +237,20 @@ export default function WalletsBoard({
         </div>
       )}
 
+      {idle.length > 0 && (
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <span>
+            {showInactive
+              ? `Показаны все · не используются: ${idle.length}`
+              : `Скрыто неактивных: ${idle.length}`}
+          </span>
+          <button className="px-2 py-1 rounded border text-xs hover:bg-gray-50"
+                  onClick={() => setShowInactive(!showInactive)}>
+            {showInactive ? "только активные" : "показать все"}
+          </button>
+        </div>
+      )}
+
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -230,12 +264,17 @@ export default function WalletsBoard({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {shown.map((r) => {
               const b = badge(r);
               return (
-                <tr key={r.service} className="border-b last:border-0 align-top">
+                <tr key={r.service} className={`border-b last:border-0 align-top ${r.inactive ? "opacity-50" : ""}`}>
                   <td className="py-2.5 pr-3">
-                    <div className="font-medium">{r.title}</div>
+                    <div className="font-medium">
+                      {r.title}
+                      {r.inactive && (
+                        <span className="ml-2 text-xs font-normal text-gray-400">не активен</span>
+                      )}
+                    </div>
                     {r.note && <div className="text-xs text-gray-500 mt-0.5 max-w-xs">{r.note}</div>}
                   </td>
                   <td className="py-2.5 pr-3">
@@ -267,8 +306,18 @@ export default function WalletsBoard({
                         {open === r.service ? "закрыть" : "внести"}
                       </button>
                     )}
-                    {/* Удаляется только заведённое руками: справочный кошелёк
-                        вернётся через час со следующим замером. */}
+                    {/* Основной способ убрать сервис из работы — пометка, а не
+                        удаление: справочный кошелёк удалить нельзя вовсе, он
+                        вернётся со следующим замером. */}
+                    {canManage && (
+                      <button className="text-xs px-2 py-1 ml-2 rounded border hover:bg-gray-50 disabled:opacity-50"
+                              disabled={busy !== ""}
+                              onClick={() => setInactive(r.service, !r.inactive)}>
+                        {r.inactive ? "вернуть" : "не активен"}
+                      </button>
+                    )}
+                    {/* Удаляется только заведённое руками — на случай, когда
+                        кошелёк создан по ошибке и истории по нему нет смысла. */}
                     {canManage && r.custom && (
                       <button className="text-xs px-2 py-1 ml-2 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
                               disabled={busy !== ""}

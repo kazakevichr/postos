@@ -33,6 +33,7 @@ export type WalletRow = {
   source: string;          // откуда взят остаток
   blocks: boolean;         // останавливает ли работу
   custom: boolean;         // заведён руками — можно удалить
+  inactive: boolean;       // сервисом не пользуются — вне рабочего списка
   state: string;
 };
 
@@ -376,6 +377,7 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
       source,
       blocks: SERVICES[service] ? meta.blocks : w?.blocks ?? false,
       custom: w?.custom ?? false,
+      inactive: w?.inactive ?? false,
       state: w?.state || "",
     };
   });
