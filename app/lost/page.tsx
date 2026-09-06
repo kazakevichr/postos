@@ -1,15 +1,16 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { currentAccess, projectWhere } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
 export default async function LostPartnersPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const access = await currentAccess();
+  if (!access) redirect("/login");
 
-  const where: any = { status: "LOST" };
-  if (session.user.role === "MANAGER") where.responsibleUserId = session.user.id;
+  // Рамки направления: база отказов по СуперФиту в разделе Оракла — не
+  // напоминание, а чужой список, к которому нечего возвращаться.
+  const where: any = { status: "LOST", ...projectWhere(access) };
+  if (access.role === "MANAGER") where.responsibleUserId = access.userId;
 
   const partners = await prisma.partner.findMany({
     where,

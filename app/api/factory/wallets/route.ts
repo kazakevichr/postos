@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { accessBrands, currentAccess } from "@/lib/access";
 import { notifyRoles } from "@/lib/telegram";
 import {
   DEFAULT_PROJECT,
@@ -11,15 +12,21 @@ import {
   stateOf,
   topups,
   wallets,
+  walletProjectsOf,
 } from "@/lib/wallets";
 
 export const dynamic = "force-dynamic";
 
-// Кошельки видит только владелец (решение Романа 02.09): это деньги
-// сервисов, а не работа с контентом.
-async function canSee() {
-  const s = await getServerSession(authOptions);
-  return s && s.user.role === "OWNER" ? s : null;
+// Кошельки — деньги сервисов, а не работа с контентом: СММ сюда не ходит.
+// Партнёр смотрит кошельки своего направления: сервисы, которые оно жжёт,
+// оплачены из его же денег. Пополняет по-прежнему только владелец.
+//
+// Возвращает проекты кошельков, которые человеку видны, — пустой список
+// означает «нечего показывать», а не «показать всё».
+async function visibleProjects(): Promise<string[] | null> {
+  const access = await currentAccess();
+  if (!access || !["OWNER", "PARTNER"].includes(access.role)) return null;
+  return walletProjectsOf(await accessBrands(access));
 }
 async function owner() {
   const s = await getServerSession(authOptions);
@@ -32,20 +39,22 @@ function byKey(req: Request) {
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-// Проект, который спрашивают. Неизвестное имя не ошибка, а старая ссылка или
-// клиент прежней версии — отдаём проект по умолчанию, а не пустую страницу.
-function askedProject(req: Request) {
+// Проект, который спрашивают, — но не дальше рамок направления. Неизвестное
+// или чужое имя не ошибка, а старая ссылка либо попытка заглянуть за свои
+// границы: отдаём первый доступный, а не пустую страницу и не чужие деньги.
+function askedProject(req: Request, allowed: string[]) {
   const p = new URL(req.url).searchParams.get("project") || "";
-  return PROJECTS[p] ? p : DEFAULT_PROJECT;
+  if (PROJECTS[p] && allowed.includes(p)) return p;
+  return allowed.includes(DEFAULT_PROJECT) ? DEFAULT_PROJECT : allowed[0];
 }
 
 // Тексты предупреждений и список проектов едут вместе с данными: справочник
 // живёт в lib/wallets.ts рядом с prisma, а таблица — клиентский компонент, и
 // импортировать одно в другое нельзя.
-async function picture(project: string) {
+async function picture(project: string, allowed: string[]) {
   return {
     project,
-    projects: Object.entries(PROJECTS).map(([id, p]) => ({ id, title: p.title })),
+    projects: allowed.map((id) => ({ id, title: PROJECTS[id].title })),
     labels: PROJECTS[project],
     wallets: await wallets(project),
     topups: await topups(project),
@@ -118,10 +127,14 @@ export async function POST(req: Request) {
 // Картина для раздела. Источникам замеров по ключу отдаём то же самое: по этим
 // данным завод решает, начинать ли производство.
 export async function GET(req: Request) {
-  if (!byKey(req) && !(await canSee())) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Источникам замеров рамки направления не нужны: они спрашивают про свой
+  // проект по имени и ходят по ключу, а не сессией.
+  const allowed = byKey(req) ? Object.keys(PROJECTS) : await visibleProjects();
+  if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!allowed.length) {
+    return NextResponse.json({ project: "", projects: [], labels: null, wallets: [], topups: [] });
   }
-  return NextResponse.json(await picture(askedProject(req)));
+  return NextResponse.json(await picture(askedProject(req, allowed), allowed));
 }
 
 // Ручной ввод — то, чего сервисы не отдают по API.
@@ -165,7 +178,7 @@ export async function PUT(req: Request) {
       ["OWNER"],
       `💳 [${PROJECTS[project].title}] <b>${SERVICES[service].title}</b>: пополнение ${money(amount)}`,
     );
-    return NextResponse.json({ ok: true, ...(await picture(project)) });
+    return NextResponse.json({ ok: true, ...(await picture(project, Object.keys(PROJECTS))) });
   }
 
   if ("manual" in (b || {})) {
@@ -181,7 +194,7 @@ export async function PUT(req: Request) {
       },
       update: { manual, manualAt: manual == null ? null : new Date() },
     });
-    return NextResponse.json({ ok: true, ...(await picture(project)) });
+    return NextResponse.json({ ok: true, ...(await picture(project, Object.keys(PROJECTS))) });
   }
 
   return NextResponse.json({ error: "нужны amount или manual" }, { status: 400 });
@@ -196,7 +209,8 @@ export async function DELETE(req: Request) {
   // Проект узнаём ДО удаления: после него сервис уже не спросить, а вернуть
   // нужно картину того же раздела, из которого нажали «удалить».
   const row = await prisma.walletTopup.findUnique({ where: { id } });
-  const project = row ? projectOf(row.service) : askedProject(req);
+  const all = Object.keys(PROJECTS);
+  const project = row ? projectOf(row.service) : askedProject(req, all);
   await prisma.walletTopup.delete({ where: { id } }).catch(() => {});
-  return NextResponse.json({ ok: true, ...(await picture(project)) });
+  return NextResponse.json({ ok: true, ...(await picture(project, all)) });
 }

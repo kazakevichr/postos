@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { currentAccess } from "@/lib/access";
+import { accessBrands, currentAccess } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
+import { walletProjectsOf } from "@/lib/wallets";
 import WalletsBoard from "@/components/WalletsBoard";
 
 // Кошельки платных сервисов: остатки, пополнения, что останавливает завод.
@@ -13,23 +14,24 @@ export default async function WalletsPage() {
   if (!access) redirect("/login");
   if (!["OWNER", "PARTNER"].includes(access.role)) redirect("/");
 
-  // Ключ кошельков совпадает с источником дохода направления: и то и другое
-  // отвечает на вопрос «с какой внешней системой связан этот проект».
-  // Пусто — у направления нет своих платных сервисов.
-  const project = access.projectId
-    ? await prisma.project.findUnique({
-        where: { id: access.projectId },
-        select: { name: true, incomeSource: true },
-      })
-    : null;
+  // Кошельки направления определяет тот же бренд, что делит соцсети и завод.
+  // Раньше привязка шла через источник дохода, и незаполненное поле оставляло
+  // раздел пустым, хотя кошельки у направления есть.
+  const mine = walletProjectsOf(await accessBrands(access));
 
-  if (access.projectId && !project?.incomeSource) {
+  if (!mine.length) {
+    const project = access.projectId
+      ? await prisma.project.findUnique({
+          where: { id: access.projectId },
+          select: { name: true },
+        })
+      : null;
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-bold">Кошельки</h1>
         <p className="card text-sm text-gray-500">
-          У направления «{project?.name}» нет своих платных сервисов. Кошельки заведены у Оракла и
-          СуперФита — переключи направление наверху, чтобы их увидеть.
+          У направления «{project?.name || "—"}» нет своих платных сервисов. Кошельки заведены у
+          Оракла и СуперФита — переключи направление наверху, чтобы их увидеть.
         </p>
       </div>
     );
@@ -38,7 +40,8 @@ export default async function WalletsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Кошельки</h1>
-      <WalletsBoard canManage={access.canEdit} lockTo={project?.incomeSource || undefined} />
+      {/* Один проект — вкладки не нужны: переключать не на что. */}
+      <WalletsBoard canManage={access.canEdit} lockTo={mine.length === 1 ? mine[0] : undefined} />
     </div>
   );
 }

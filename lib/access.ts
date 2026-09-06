@@ -183,8 +183,11 @@ export type SocialScope = {
   brands: string[] | null;
 };
 
-/** Бренды выбранного направления, а в сводном режиме — всех доступных. */
-async function scopeBrands(access: Access): Promise<string[] | null> {
+/**
+ * Бренды выбранного направления, а в сводном режиме — всех доступных.
+ * null — рамок нет: владелец смотрит всё сразу.
+ */
+export async function accessBrands(access: Access): Promise<string[] | null> {
   if (access.projectId) {
     const p = await prisma.project.findUnique({
       where: { id: access.projectId },
@@ -212,7 +215,7 @@ async function scopeBrands(access: Access): Promise<string[] | null> {
 export async function socialScope(): Promise<SocialScope | null> {
   const access = await currentAccess();
   if (!access || !SMM_ROLES.includes(access.role)) return null;
-  return { access, brands: await scopeBrands(access) };
+  return { access, brands: await accessBrands(access) };
 }
 
 /** Оставить из списка только то, что попадает в рамки направления. */
