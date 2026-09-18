@@ -523,7 +523,7 @@ export default function SocialDashboard({
               {a.publishes ? (
                 <span className="text-xs text-gray-400">публикуется</span>
               ) : (
-                <span className="relative group text-xs text-gray-400 border-b border-dotted border-gray-300 cursor-help">
+                <span className="relative group text-xs text-gray-400 border-b border-dotted border-gray-300 cursor-help whitespace-nowrap">
                   {a.suspicious ? "не читается" : "не публикуется"}
                   {a.reason && (
                     <span className="hidden group-hover:block absolute bottom-full left-0 mb-1.5 w-64 bg-gray-900 text-white text-xs leading-5 rounded-lg px-3 py-2 z-20 shadow-lg">
@@ -535,7 +535,7 @@ export default function SocialDashboard({
                 </span>
               )}
               {canManage && (
-                <button className="btn btn-secondary" disabled={busy}
+                <button className="btn btn-secondary shrink-0" disabled={busy}
                   onClick={() => setAsking(asking === a.id ? "" : a.id)}>
                   🗄 Архивировать
                 </button>

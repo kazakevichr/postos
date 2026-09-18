@@ -5,6 +5,8 @@ import ProjectPicker from "@/components/ProjectPicker";
 import SignOutButton from "@/components/SignOutButton";
 import ProjectsNavDropdown from "@/components/ProjectsNavDropdown";
 import SidebarShell from "@/components/SidebarShell";
+import { listOpen } from "@/lib/notices";
+import { accessBrands } from "@/lib/access";
 
 const ROLE_LABEL: Record<string, string> = {
   OWNER: "владелец",
@@ -38,6 +40,28 @@ export default async function Navbar() {
       : [];
 
   const linkClass = "px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-brand-700";
+
+  // Уведомления — над всеми разделами и у всех ролей: их смысл в том, чтобы
+  // попасться на глаза из любого места, а не лежать в своём углу.
+  const open = await listOpen({
+    role,
+    brands: await accessBrands(access),
+    userId: access.userId,
+  }).catch(() => []);
+  const unread = open.filter((n) => !n.read).length;
+  const worst = open.some((n) => n.level === "crit");
+
+  const noticesLink = (
+    <Link key="/notices" href="/notices"
+      className={`${linkClass} flex items-center justify-between gap-2 ${unread ? "text-gray-900 font-medium" : ""}`}>
+      <span>🔔 Уведомления</span>
+      {unread > 0 && (
+        <span className={`text-[11px] font-semibold px-1.5 py-px rounded-full text-white ${worst ? "bg-red-600" : "bg-gray-400"}`}>
+          {unread}
+        </span>
+      )}
+    </Link>
+  );
 
   const navLink = (href: string, label: string) => (
     <Link key={href} href={href} className={linkClass}>
@@ -95,9 +119,10 @@ export default async function Navbar() {
   // Владелец видит всё; партнёр — своё направление; менеджер партнёров —
   // партнёрский блок и свою зарплату; СММ — блок СММ.
   const items = isOwner
-    ? [...partnerGroup, ...smmGroup, ...teamGroup]
+    ? [noticesLink, ...partnerGroup, ...smmGroup, ...teamGroup]
     : role === "PARTNER"
       ? [
+          noticesLink,
           ...partnerViewGroup,
           groupTitle("Партнёрский менеджмент"),
           navLink("/partners", "Партнёры"),
@@ -110,8 +135,8 @@ export default async function Navbar() {
           ...smmGroup,
         ]
       : role === "SMM"
-        ? smmGroup
-        : [...partnerGroup, navLink("/payroll", "Зарплата")];
+        ? [noticesLink, ...smmGroup]
+        : [noticesLink, ...partnerGroup, navLink("/payroll", "Зарплата")];
 
   return (
     <SidebarShell

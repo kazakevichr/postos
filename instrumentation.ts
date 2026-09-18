@@ -85,7 +85,24 @@ export async function register() {
     }
   };
 
-  const tickAll = async () => { await tick(); await remind(); await quota(); await meta(); };
+  // Уведомления считаем ПОСЛЕ сбора: проверяльщики смотрят на свежие цифры,
+  // иначе первое уведомление о молчащем заводе опоздает на цикл.
+  const notices = async () => {
+    try {
+      // Через HTTP к самому себе по той же причине, что и Оракл: проверяльщики
+      // тянут Телеграм, а тот — node:crypto, которого в edge-сборке нет.
+      const r = await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/notices/check`, {
+        method: "POST",
+        headers: { "x-factory-key": process.env.IG_HOST_KEY || "" },
+      });
+      const s = await r.json();
+      if (s.pushed) console.log(`[уведомления] в Телеграм ушло: ${s.pushed}`);
+    } catch (e) {
+      console.error("[уведомления] проверки упали:", e);
+    }
+  };
+
+  const tickAll = async () => { await tick(); await remind(); await quota(); await meta(); await notices(); };
   setInterval(tickAll, 20 * 60 * 1000);
   setTimeout(tickAll, 60 * 1000); // первый прогон через минуту после старта
 }
