@@ -31,9 +31,26 @@ export async function POST(req: Request) {
   const id = String(body.id || "");
   const action = String(body.action || "");
   const note = String(body.note || "").slice(0, 200);
-  if (!id || !["archive", "restore"].includes(action)) {
-    return NextResponse.json({ error: "нужны id и action: archive | restore" }, { status: 400 });
+  if (!id || !["archive", "restore", "note"].includes(action)) {
+    return NextResponse.json({ error: "нужны id и action: archive | restore | note" }, { status: 400 });
   }
+
+  // Заметка: «ждём документы от Меты». Состояние аккаунта не меняет — просто
+  // объясняет его тем, кто откроет страницу после вас.
+  if (action === "note") {
+    const text = String(body.note ?? "").slice(0, 200);
+    if (id.startsWith("ig-")) {
+      await prisma.igAccount.update({ where: { igId: id.slice(3) }, data: { note: text } });
+    } else {
+      const dash = id.indexOf("-");
+      const platform = id.slice(0, dash) === "youtube" ? "yt" : id.slice(0, dash);
+      const row = await prisma.oracleChannel.findFirst({ where: { platform, key: id.slice(dash + 1) } });
+      if (!row) return NextResponse.json({ error: "канал не найден" }, { status: 404 });
+      await prisma.oracleChannel.update({ where: { id: row.id }, data: { note: text } });
+    }
+    return NextResponse.json({ ok: true, note: text });
+  }
+
   const archived = action === "archive";
 
   let username = "";

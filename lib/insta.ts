@@ -297,6 +297,25 @@ export async function runCollect() {
         lastErrorAt: null,
         failCount: 0,
       };
+      // Аккаунт, который не читался, снова отвечает. Молча вернуть его в строй
+      // мало: человек мог неделю ждать документов от Меты и об этом же
+      // спрашивать. Пропажу заметили уведомлением — возвращение тоже.
+      if (row && row.failCount >= SUSPICIOUS_AFTER) {
+        const { raise } = await import("@/lib/notices");
+        await raise({
+          key: `meta:back:${acc.igId}`,
+          kind: "meta",
+          level: "info",
+          brand,
+          title: `@${acc.username} снова читается`,
+          body: row.note
+            ? `Площадка опять отдаёт данные. Заметка «${row.note}» больше не актуальна — снимите её.`
+            : "Площадка опять отдаёт данные, сбор пошёл как обычно.",
+          href: "/social",
+          actionText: "К аккаунту",
+        }).catch(() => {});
+      }
+
       // Упавший аккаунт в базу не пишется вовсе — в Netlify-версии он попадал
       // в индекс даже после ошибки и чтение его отфильтровывало.
       await prisma.igAccount.upsert({

@@ -52,6 +52,18 @@ export default function NoticesPanel({ initial }: { initial: Notice[] }) {
     (n) => (kind === "all" || n.kind === kind) && (!onlyUnread || !n.read)
   );
 
+  // Отложить: беда настоящая, ею занимаются, напоминать каждый день незачем.
+  // Не «прочитано» — прочитанное остаётся на виду; и не «погашено» — причина
+  // никуда не делась.
+  async function snoozeOne(key: string, days: number) {
+    setNotices((prev) => prev.filter((n) => n.key !== key));
+    await fetch("/api/notices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "snooze", key, days }),
+    });
+  }
+
   async function readAll() {
     setNotices((prev) => prev.map((n) => ({ ...n, read: true })));
     await fetch("/api/notices", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
@@ -109,11 +121,17 @@ export default function NoticesPanel({ initial }: { initial: Notice[] }) {
                     {n.body && <div className="text-[13px] text-gray-500 mt-1 leading-5">{n.body}</div>}
                     <div className="text-xs text-gray-400 mt-1">{when(n.lastAt)}</div>
                   </div>
-                  {n.href && (
-                    <Link href={n.href} className="btn btn-secondary shrink-0 self-start">
-                      {n.actionText || "Открыть"} →
-                    </Link>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0 self-start">
+                    <button className="btn btn-secondary" title="Скрыть на неделю: этим уже занимаются"
+                      onClick={() => snoozeOne(n.key, 7)}>
+                      Отложить
+                    </button>
+                    {n.href && (
+                      <Link href={n.href} className="btn btn-secondary">
+                        {n.actionText || "Открыть"} →
+                      </Link>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -124,7 +142,8 @@ export default function NoticesPanel({ initial }: { initial: Notice[] }) {
       {!shown.length && (
         <div className="card text-sm text-gray-500">
           Ничего не требует внимания. Уведомления гаснут сами, когда причина исчезает:
-          кошелёк пополнили, завод опубликовал, задачу закрыли.
+          кошелёк пополнили, завод опубликовал, задачу закрыли. Отложенные вернутся,
+          когда выйдет срок.
         </div>
       )}
     </div>

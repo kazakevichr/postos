@@ -92,6 +92,10 @@ export default function SocialDashboard({
   // Какую карточку сейчас спрашивают «точно архивировать?». Архивация гасит
   // маршруты публикации — это не то, что делают случайным кликом.
   const [asking, setAsking] = useState("");
+  // Кому сейчас пишут заметку и что именно. «Ждём документы от Меты» — знание,
+  // которого нет ни в одном ответе площадки.
+  const [noting, setNoting] = useState("");
+  const [noteText, setNoteText] = useState("");
 
   async function load() {
     const r = await fetch("/api/social/stats");
@@ -143,6 +147,22 @@ export default function SocialDashboard({
             : `@${r.username} возвращён. Маршруты остались выключенными — включите вручную, когда будете готовы.`
       );
       setAsking("");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveNote(id: string) {
+    setBusy(true);
+    try {
+      await fetch("/api/social/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "note", note: noteText }),
+      });
+      setNoting("");
+      setNoteText("");
       await load();
     } finally {
       setBusy(false);
@@ -519,6 +539,12 @@ export default function SocialDashboard({
             })()}
             </div>
 
+            {a.note && (
+              <div className="mt-2 text-xs text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg px-2 py-1">
+                ✎ {a.note}
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-gray-100">
               {a.publishes ? (
                 <span className="text-xs text-gray-400">публикуется</span>
@@ -535,12 +561,35 @@ export default function SocialDashboard({
                 </span>
               )}
               {canManage && (
-                <button className="btn btn-secondary shrink-0" disabled={busy}
-                  onClick={() => setAsking(asking === a.id ? "" : a.id)}>
-                  🗄 Архивировать
-                </button>
+                <span className="flex gap-1.5 shrink-0">
+                  {!a.publishes && (
+                    <button className="btn btn-secondary" disabled={busy}
+                      onClick={() => {
+                        setNoting(noting === a.id ? "" : a.id);
+                        setNoteText(a.note || "");
+                      }}>
+                      ✎
+                    </button>
+                  )}
+                  <button className="btn btn-secondary" disabled={busy}
+                    onClick={() => setAsking(asking === a.id ? "" : a.id)}>
+                    🗄 Архивировать
+                  </button>
+                </span>
               )}
             </div>
+
+            {noting === a.id && (
+              <div className="mt-2 flex gap-2">
+                <input className="input" value={noteText} autoFocus
+                  placeholder="Ждём документы от Меты"
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveNote(a.id)} />
+                <button className="btn btn-primary shrink-0" disabled={busy} onClick={() => saveNote(a.id)}>
+                  Сохранить
+                </button>
+              </div>
+            )}
 
             {asking === a.id && (
               <div className="mt-2.5 p-2.5 rounded-lg bg-yellow-50 border border-yellow-200 text-[13px] text-yellow-900">

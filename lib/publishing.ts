@@ -18,7 +18,7 @@ export type PublishState = {
 };
 
 export async function publishStates(
-  accounts: { username: string; archivedAt?: Date | null; archiveNote?: string; lastError?: string; failCount?: number; lastErrorAt?: Date | null }[]
+  accounts: { username: string; archivedAt?: Date | null; archiveNote?: string; note?: string; lastError?: string; failCount?: number; lastErrorAt?: Date | null }[]
 ): Promise<Record<string, PublishState>> {
   const flags = await routeMap();
   const flagRows = await prisma.routeFlag.findMany();
@@ -64,11 +64,13 @@ export async function publishStates(
         publishes: false,
         suspicious: true,
         reason: {
-          title: `Площадка не отвечает ${fails} сбора подряд`,
+          title: a.note
+            ? `Под вопросом: ${a.note}`
+            : `Площадка не отвечает ${fails} сбора подряд`,
           body: a.lastError
-            ? `Последний ответ: ${a.lastError.slice(0, 180)}`
-            : "Ответ площадки не записан.",
-          source: "Мета · Graph API",
+            ? `Не читается ${fails} сбора подряд. Последний ответ: ${a.lastError.slice(0, 160)}`
+            : `Не читается ${fails} сбора подряд, ответ площадки не записан.`,
+          source: a.note ? "Заметка · поставлена вручную" : "Мета · Graph API",
         },
       };
       continue;

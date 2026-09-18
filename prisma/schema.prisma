@@ -281,6 +281,10 @@ model IgAccount {
   // строку, иначе правка META_IG_IDS уносит с собой всю историю.
   archivedAt  DateTime?
   archiveNote String    @default("")
+  // Заметка человека: почему аккаунт в таком состоянии. «Ждём документы от
+  // Меты» — это знание, которого нет ни в одном ответе площадки, и без него
+  // значок «не читается» через неделю никому ни о чём не говорит.
+  note        String    @default("")
   // Когда цифры последний раз были живыми. updatedAt для этого не годится: он
   // сдвигается и при самой архивации.
   lastSeenAt  DateTime?
@@ -317,6 +321,10 @@ model OracleChannel {
   // строку, иначе правка META_IG_IDS уносит с собой всю историю.
   archivedAt  DateTime?
   archiveNote String    @default("")
+  // Заметка человека: почему аккаунт в таком состоянии. «Ждём документы от
+  // Меты» — это знание, которого нет ни в одном ответе площадки, и без него
+  // значок «не читается» через неделю никому ни о чём не говорит.
+  note        String    @default("")
   // Когда цифры последний раз были живыми. updatedAt для этого не годится: он
   // сдвигается и при самой архивации.
   lastSeenAt  DateTime?
@@ -542,26 +550,31 @@ model WalletTopup {
 // проверить не может (разовые события вроде отказа Меты).
 model Notice {
   // Вид и сущность: "wallet:low:heygen", "meta:rejected:super.fit24".
-  key        String    @id
-  kind       String // wallet | meta | factory | tasks | analytics | access | plan
-  level      String    @default("warn") // crit | warn | info
-  title      String
-  body       String    @default("")
-  href       String    @default("") // куда ведёт кнопка
-  actionText String    @default("")
+  key          String    @id
+  kind         String // wallet | meta | factory | tasks | analytics | access | plan
+  level        String    @default("warn") // crit | warn | info
+  title        String
+  body         String    @default("")
+  href         String    @default("") // куда ведёт кнопка
+  actionText   String    @default("")
   // Направление и роли: СММ не должен видеть деньги, владелец видит всё.
   // Пустые роли — всем, у кого есть доступ к разделу.
-  brand      String    @default("")
-  roles      String    @default("")
-  times      Int       @default(1)
-  firstAt    DateTime  @default(now())
-  lastAt     DateTime  @default(now())
+  brand        String    @default("")
+  roles        String    @default("")
+  times        Int       @default(1)
+  firstAt      DateTime  @default(now())
+  lastAt       DateTime  @default(now())
   // Погашено: строка уходит из списка, но остаётся в истории — видно, что
   // беда была и сколько провисела.
-  resolvedAt DateTime?
+  resolvedAt   DateTime?
   // Ушла ли копия в Телеграм: пуш шлём один раз на появление, а не на каждый
   // повтор, иначе падающий каждый час заказ сделает из бота будильник.
-  pushedAt   DateTime?
+  pushedAt     DateTime?
+  // Отложено до. Беда настоящая, но ею уже занимаются: аккаунт восстанавливают
+  // по документам, счёт выставлен и ждёт оплаты. Без этого журнал ежедневно
+  // напоминает о том, что человек и так держит в голове, — и его перестают
+  // открывать вместе со всем остальным.
+  snoozedUntil DateTime?
 
   reads NoticeRead[]
 }

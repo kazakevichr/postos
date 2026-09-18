@@ -85,7 +85,7 @@ export async function raise(n: RaiseInput) {
   return prisma.notice.upsert({
     where: { key: n.key },
     create: { key: n.key, ...data, times: n.times ?? 1 },
-    update: { ...data, times: n.times ?? 1, resolvedAt: null, pushedAt: null, firstAt: new Date() },
+    update: { ...data, times: n.times ?? 1, resolvedAt: null, pushedAt: null, snoozedUntil: null, firstAt: new Date() },
   });
 }
 
@@ -114,7 +114,7 @@ export async function resolveOthers(prefix: string, keepKeys: string[]) {
 /** Открытые уведомления для человека: его роль и его направления. */
 export async function listOpen(opts: { role: string; brands: string[] | null; userId: string }) {
   const rows = await prisma.notice.findMany({
-    where: { resolvedAt: null },
+    where: { resolvedAt: null, OR: [{ snoozedUntil: null }, { snoozedUntil: { lt: new Date() } }] },
     orderBy: [{ lastAt: "desc" }],
     include: { reads: { where: { userId: opts.userId } } },
   });
@@ -137,6 +137,19 @@ export async function listOpen(opts: { role: string; brands: string[] | null; us
       read: r.reads.length > 0 && r.reads[0].at >= r.lastAt,
     }))
     .sort((a, b) => (rank[a.level] ?? 3) - (rank[b.level] ?? 3) || b.lastAt.localeCompare(a.lastAt));
+}
+
+/**
+ * Отложить: беда настоящая, но ею занимаются.
+ *
+ * Не «прочитано» и не «погашено». Прочитанное остаётся на виду, погашенное
+ * значит «причина исчезла» — а тут причина на месте, просто напоминать о ней
+ * каждый день незачем. Вернётся сама, когда срок выйдет.
+ */
+export async function snooze(key: string, days: number) {
+  const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  await prisma.notice.updateMany({ where: { key }, data: { snoozedUntil: until } });
+  return until;
 }
 
 /** Отметить прочитанным. Прочтение у каждого своё. */

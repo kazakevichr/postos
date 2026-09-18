@@ -101,15 +101,29 @@ async function checkAccounts() {
       keep.push(key);
       await raise({
         key, kind: "meta", level: "warn", brand: r.brand,
-        title: `@${r.username} не читается ${plural(r.failCount, "сбор", "сбора", "сборов")} подряд`,
-        body: r.lastError
-          ? `Последний ответ Меты: ${r.lastError.slice(0, 200)}`
-          : "Ответ площадки не записан.",
-        href: "/social", actionText: "В архив",
+        title: r.note
+          ? `@${r.username} под вопросом: ${r.note}`
+          : `@${r.username} не читается ${plural(r.failCount, "сбор", "сбора", "сборов")} подряд`,
+        body: [
+          `Не читается ${plural(r.failCount, "сбор", "сбора", "сборов")} подряд.`,
+          r.lastError ? `Последний ответ Меты: ${r.lastError.slice(0, 200)}` : "Ответ площадки не записан.",
+        ].join(" "),
+        href: "/social", actionText: "К аккаунту",
       });
     }
   }
-  await resolveOthers("meta:", keep);
+  // Сметаем только «не читается»: meta:token гасим отдельно, а meta:back —
+  // событие, а не состояние, и общий обход не должен его хоронить.
+  await resolveOthers("meta:unread:", keep);
+  if (!keep.includes("meta:token")) await resolve("meta:token");
+
+  // Весть о возвращении аккаунта живёт сутки — за это время её увидят, — а
+  // потом уходит сама. Некому иначе: аккаунт-то в порядке.
+  const yesterday = new Date(Date.now() - DAY);
+  await prisma.notice.updateMany({
+    where: { key: { startsWith: "meta:back:" }, resolvedAt: null, firstAt: { lt: yesterday } },
+    data: { resolvedAt: new Date() },
+  });
 }
 
 // ── Завод ─────────────────────────────────────────────────────────────────

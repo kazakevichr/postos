@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { accessBrands, currentAccess } from "@/lib/access";
-import { listOpen, markRead } from "@/lib/notices";
+import { listOpen, markRead, snooze } from "@/lib/notices";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,14 @@ export async function POST(req: Request) {
   const access = await currentAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
+
+  // Отложить — отдельное действие, не разновидность «прочитано».
+  if (body.action === "snooze" && body.key) {
+    const days = Math.min(90, Math.max(1, Number(body.days) || 7));
+    const until = await snooze(String(body.key), days);
+    return NextResponse.json({ ok: true, until: until.toISOString() });
+  }
+
   const keys: string[] = Array.isArray(body.keys) ? body.keys.map(String) : [];
   if (!keys.length) {
     const all = await listOpen({
