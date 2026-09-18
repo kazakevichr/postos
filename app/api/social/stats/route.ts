@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inScope, socialScope } from "@/lib/access";
 import { brandFor } from "@/lib/insta";
+import { publishStates } from "@/lib/publishing";
 
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,11 @@ export async function GET() {
 
   const accounts: any[] = [];
 
-  for (const r of await prisma.igAccount.findMany({ orderBy: { username: "asc" } })) {
+  // Почему аккаунт публикует или нет — один запрос на всех, а не по карточке.
+  const igRows = await prisma.igAccount.findMany({ orderBy: { username: "asc" } });
+  const states = await publishStates(igRows.filter((r) => !r.igId.startsWith("bd:")));
+
+  for (const r of igRows) {
     // Аккаунты Лео (business_discovery) — только для нормы СММ в кабинете:
     // это партнёрские страницы, в общей аналитике соцсетей им не место.
     if (r.igId.startsWith("bd:")) continue;
@@ -44,11 +49,29 @@ export async function GET() {
         source: factoryLinks.has(norm(m.permalink)) ? "factory" : "manual",
       })),
       updatedAt: r.updatedAt.toISOString(),
+      // Архив и причина молчания: карточке нужно и то, и другое — значок
+      // состояния и подсказка «почему», чтобы не искать по разделам.
+      archived: Boolean(r.archivedAt),
+      archivedAt: r.archivedAt ? r.archivedAt.toISOString() : null,
+      archiveNote: r.archiveNote,
+      lastSeenAt: (r.lastSeenAt || r.updatedAt).toISOString(),
+      postsKept: JSON.parse(r.media).length,
+      publishes: states[r.username]?.publishes ?? false,
+      suspicious: states[r.username]?.suspicious ?? false,
+      reason: states[r.username]?.reason ?? null,
     });
   }
 
-  for (const r of await prisma.oracleChannel.findMany({ orderBy: [{ platform: "asc" }, { key: "asc" }] })) {
+  // Каналы ведут себя так же, как инстаграмы: их тоже блокируют, и их тоже
+  // надо уметь убрать в архив, не теряя накопленного.
+  const chanRows = await prisma.oracleChannel.findMany({ orderBy: [{ platform: "asc" }, { key: "asc" }] });
+  const chanStates = await publishStates(
+    chanRows.map((r) => ({ ...r, username: JSON.parse(r.profile).handle || r.key }))
+  );
+
+  for (const r of chanRows) {
     const p = JSON.parse(r.profile);
+    const handle = p.handle || r.key;
     const history: any[] = JSON.parse(r.history);
     const media: any[] = JSON.parse(r.media);
     accounts.push({
@@ -89,6 +112,14 @@ export async function GET() {
       }),
       media: media.map((m) => ({ ...m, caption: m.caption ?? m.title ?? "" })),
       updatedAt: r.updatedAt.toISOString(),
+      archived: Boolean(r.archivedAt),
+      archivedAt: r.archivedAt ? r.archivedAt.toISOString() : null,
+      archiveNote: r.archiveNote,
+      lastSeenAt: (r.lastSeenAt || r.updatedAt).toISOString(),
+      postsKept: media.length,
+      publishes: chanStates[handle]?.publishes ?? false,
+      suspicious: chanStates[handle]?.suspicious ?? false,
+      reason: chanStates[handle]?.reason ?? null,
     });
   }
 

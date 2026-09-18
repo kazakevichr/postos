@@ -56,9 +56,19 @@ async function gget(path: string, params: Record<string, string>, token: string)
 async function discoverAccounts(token: string, errors: string[] = []) {
   const accounts: any[] = [];
   const ids = (process.env.META_IG_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  // Архивные не опрашиваем вовсе: аккаунт удалён площадкой, и каждый заход к
+  // Мете за ним — гарантированная ошибка в сводке, из-за которой перестают
+  // замечать настоящие.
+  const archived = new Set(
+    (await prisma.igAccount.findMany({
+      where: { NOT: { archivedAt: null } },
+      select: { igId: true },
+    })).map((r) => r.igId)
+  );
 
   if (ids.length) {
     for (const id of ids) {
+      if (archived.has(id)) continue;
       // Один недоступный аккаунт (отвязали в Business Manager, ограничение
       // Меты) не должен хоронить сбор по остальным: 19.08 ровно так пропал
       // весь сбор из-за одного superfit24_training.
@@ -75,6 +85,7 @@ async function discoverAccounts(token: string, errors: string[] = []) {
         });
       } catch (e: any) {
         errors.push(`${id}: ${e.message}`);
+        await noteFailure(id, e.message);
       }
     }
     return accounts;
@@ -278,6 +289,13 @@ export async function runCollect() {
         profile: JSON.stringify(acc),
         history: JSON.stringify(history),
         media: JSON.stringify(merged),
+        // Удачный сбор стирает след неудач: аккаунт, который вчера не читался
+        // из-за суточного ограничения Меты, не должен всю неделю числиться
+        // подозрительным.
+        lastSeenAt: new Date(),
+        lastError: "",
+        lastErrorAt: null,
+        failCount: 0,
       };
       // Упавший аккаунт в базу не пишется вовсе — в Netlify-версии он попадал
       // в индекс даже после ошибки и чтение его отфильтровывало.
@@ -289,6 +307,7 @@ export async function runCollect() {
       summary.accounts++;
     } catch (e: any) {
       summary.errors.push(`${acc.username}: ${e.message}`);
+      await noteFailure(acc.igId, e.message);
     }
   }
   for (const u of await bdList()) {
@@ -302,13 +321,66 @@ export async function runCollect() {
   return summary;
 }
 
-// Убранные из META_IG_IDS аккаунты вычищаем из базы (личный @kazakevich и
-// прочие «наблюдать не нужно»): без этого они навсегда остаются в «Прочее»
-// со старыми цифрами.
+// Сколько сборов подряд аккаунт должен не читаться, чтобы считаться
+// подозрительным. Меньше трёх — ловим суточные ограничения Меты, которые
+// проходят сами; больше — узнаём о блокировке через сутки.
+export const SUSPICIOUS_AFTER = 3;
+
+// Аккаунт не прочитался: запоминаем ответ площадки и считаем неудачи подряд.
+// Раньше ошибка жила только в ответе сбора и пропадала вместе с ним, поэтому
+// на вопрос «почему не публикуется» ответить было нечем.
+async function noteFailure(igId: string, message: string) {
+  try {
+    const row = await prisma.igAccount.findUnique({ where: { igId } });
+    if (!row || row.archivedAt) return;
+    await prisma.igAccount.update({
+      where: { igId },
+      data: {
+        lastError: (message || "").slice(0, 500),
+        lastErrorAt: new Date(),
+        failCount: row.failCount + 1,
+      },
+    });
+  } catch {
+    // Учёт неудач не должен ронять сбор по остальным аккаунтам.
+  }
+}
+
+// Аккаунты, убранные из META_IG_IDS, уходят В АРХИВ, а не в небытие.
+//
+// Раньше здесь стоял deleteMany, и это была мина: достаточно было убрать ID из
+// переменной окружения — например, меняя удалённый аккаунт на новый, — и
+// следующий же сбор стирал строку со всей историей подписчиков и всеми
+// постами. Так в августе 2026 бесследно исчез superfit24_training.
+//
+// Теперь строка остаётся с отметкой archivedAt: к Мете за ней больше не
+// ходим, в суммы она не входит, но цифры на месте и аккаунт можно вернуть.
 export async function pruneRemoved() {
   const ids = (process.env.META_IG_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!ids.length) return;
-  await prisma.igAccount.deleteMany({ where: { igId: { notIn: ids } } });
+  await prisma.igAccount.updateMany({
+    where: { igId: { notIn: ids }, archivedAt: null, NOT: { igId: { startsWith: "bd:" } } },
+    data: { archivedAt: new Date(), archiveNote: "убран из META_IG_IDS" },
+  });
+}
+
+// Убрать аккаунт в архив или вернуть обратно. Гашение маршрутов делает вызов
+// в app/api/social/archive: здесь только само хранилище.
+export async function setArchived(igId: string, archived: boolean, note = "") {
+  const row = await prisma.igAccount.findUnique({ where: { igId } });
+  if (!row) return null;
+  return prisma.igAccount.update({
+    where: { igId },
+    data: archived
+      ? {
+          archivedAt: new Date(),
+          archiveNote: note || "убран вручную",
+          // Дата живых цифр: если сбор ни разу не проходил после добавления
+          // поля, считаем ею последнюю запись.
+          lastSeenAt: row.lastSeenAt || row.updatedAt,
+        }
+      : { archivedAt: null, archiveNote: "", lastError: "", lastErrorAt: null, failCount: 0 },
+  });
 }
 
 export async function statsForBrand(brand: string) {

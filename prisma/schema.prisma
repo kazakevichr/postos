@@ -227,20 +227,20 @@ model PayrollRecord {
 // Партнёрские продажи, зарплата и пополнения кошельков сюда не пишутся —
 // у них свои таблицы, иначе месяц посчитается дважды.
 model Ledger {
-  id        String   @id @default(cuid())
-  kind      String // in | out
-  date      DateTime
-  category  String // реклама | сервис | прочее | продажи
-  title     String
-  amount    Float
-  currency  String   @default("RUB")
-  note      String   @default("")
-  projectId String? // пусто — расход общий, не на конкретное направление
-  byUserId  String?
+  id         String   @id @default(cuid())
+  kind       String // in | out
+  date       DateTime
+  category   String // реклама | сервис | прочее | продажи
+  title      String
+  amount     Float
+  currency   String   @default("RUB")
+  note       String   @default("")
+  projectId  String? // пусто — расход общий, не на конкретное направление
+  byUserId   String?
   // Откуда запись: «руками» или имя источника, который её принёс.
   // externalId — id платежа у источника, по нему синхронизация узнаёт своё
   // и не заводит один и тот же платёж дважды.
-  source     String  @default("руками")
+  source     String   @default("руками")
   externalId String?
   createdAt  DateTime @default(now())
 
@@ -270,13 +270,27 @@ model RecurringCost {
 // Один аккаунт Instagram = одна строка. history и media — JSON-строки:
 // SQLite не умеет Json-тип, а история нужна целиком и всегда читается разом.
 model IgAccount {
-  igId      String   @id
-  username  String
-  brand     String
-  profile   String   @default("{}")
-  history   String   @default("[]")
-  media     String   @default("[]")
-  updatedAt DateTime @updatedAt
+  igId        String    @id
+  username    String
+  brand       String
+  profile     String    @default("{}")
+  history     String    @default("[]")
+  media       String    @default("[]")
+  // Архив: площадка удалила или заблокировала аккаунт, а цифры нужны. Мягкое
+  // удаление вместо жёсткого — pruneRemoved в lib/insta.ts больше не стирает
+  // строку, иначе правка META_IG_IDS уносит с собой всю историю.
+  archivedAt  DateTime?
+  archiveNote String    @default("")
+  // Когда цифры последний раз были живыми. updatedAt для этого не годится: он
+  // сдвигается и при самой архивации.
+  lastSeenAt  DateTime?
+  // Последний ответ площадки по этому аккаунту и сколько сборов подряд он
+  // падает. Раньше ошибки уходили в summary.errors и пропадали с ответом —
+  // причину «почему не публикуется» неоткуда было взять.
+  lastError   String    @default("")
+  lastErrorAt DateTime?
+  failCount   Int       @default(0)
+  updatedAt   DateTime  @updatedAt
 }
 
 // Временный публичный хостинг картинок для публикации каруселей:
@@ -292,13 +306,27 @@ model HostedImage {
 // ── Аналитика Оракла: YouTube-каналы (свои OAuth-токены завода) и TikTok
 // (через upload-post Analytics). Паттерн тот же, что у IgAccount.
 model OracleChannel {
-  id        String   @id @default(cuid())
-  platform  String // yt | tiktok
-  key       String // язык канала (ru/en/...) или профиль upload-post
-  profile   String   @default("{}")
-  history   String   @default("[]")
-  media     String   @default("[]")
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(cuid())
+  platform    String // yt | tiktok
+  key         String // язык канала (ru/en/...) или профиль upload-post
+  profile     String    @default("{}")
+  history     String    @default("[]")
+  media       String    @default("[]")
+  // Архив: площадка удалила или заблокировала аккаунт, а цифры нужны. Мягкое
+  // удаление вместо жёсткого — pruneRemoved в lib/insta.ts больше не стирает
+  // строку, иначе правка META_IG_IDS уносит с собой всю историю.
+  archivedAt  DateTime?
+  archiveNote String    @default("")
+  // Когда цифры последний раз были живыми. updatedAt для этого не годится: он
+  // сдвигается и при самой архивации.
+  lastSeenAt  DateTime?
+  // Последний ответ площадки по этому аккаунту и сколько сборов подряд он
+  // падает. Раньше ошибки уходили в summary.errors и пропадали с ответом —
+  // причину «почему не публикуется» неоткуда было взять.
+  lastError   String    @default("")
+  lastErrorAt DateTime?
+  failCount   Int       @default(0)
+  updatedAt   DateTime  @updatedAt
 
   @@unique([platform, key])
 }
@@ -496,4 +524,56 @@ model WalletTopup {
   note    String   @default("")
 
   @@index([service, at])
+}
+
+// ── Уведомления ────────────────────────────────────────────────────────────
+// Журнал того, что требует внимания: кончились деньги на сервисе, Мета не
+// приняла публикацию, заказ упал четвёртый день, задачи просрочены. Пуши в
+// Телеграм остаются доставкой, а память живёт здесь: сообщение улетело и
+// пропало, а разбираться приходится через неделю.
+//
+// ДЕДУПЛИКАЦИЯ. Одна беда — одна строка, ключом. Повтор не плодит записи, он
+// сдвигает lastAt и увеличивает times: четыре падения подряд дают одну строку
+// «4 раза», иначе журнал за неделю превращается в ленту и его перестают
+// читать.
+//
+// ГАШЕНИЕ. Уведомление закрывает ПРОВЕРЯЛЬЩИК, а не человек: кошелёк
+// пополнили — строка ушла сама. Руками закрывают только то, что само себя
+// проверить не может (разовые события вроде отказа Меты).
+model Notice {
+  // Вид и сущность: "wallet:low:heygen", "meta:rejected:super.fit24".
+  key        String    @id
+  kind       String // wallet | meta | factory | tasks | analytics | access | plan
+  level      String    @default("warn") // crit | warn | info
+  title      String
+  body       String    @default("")
+  href       String    @default("") // куда ведёт кнопка
+  actionText String    @default("")
+  // Направление и роли: СММ не должен видеть деньги, владелец видит всё.
+  // Пустые роли — всем, у кого есть доступ к разделу.
+  brand      String    @default("")
+  roles      String    @default("")
+  times      Int       @default(1)
+  firstAt    DateTime  @default(now())
+  lastAt     DateTime  @default(now())
+  // Погашено: строка уходит из списка, но остаётся в истории — видно, что
+  // беда была и сколько провисела.
+  resolvedAt DateTime?
+  // Ушла ли копия в Телеграм: пуш шлём один раз на появление, а не на каждый
+  // повтор, иначе падающий каждый час заказ сделает из бота будильник.
+  pushedAt   DateTime?
+
+  reads NoticeRead[]
+}
+
+// Прочитано — у каждого своё: одно и то же уведомление владелец уже видел, а
+// СММ ещё нет.
+model NoticeRead {
+  noticeKey String
+  userId    String
+  at        DateTime @default(now())
+
+  notice Notice @relation(fields: [noticeKey], references: [key], onDelete: Cascade)
+
+  @@id([noticeKey, userId])
 }

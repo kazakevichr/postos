@@ -25,6 +25,15 @@ export async function GET(req: Request) {
 
   const row = await prisma.igAccount.findFirst({ where: { username: account } });
   if (!row) return NextResponse.json({ error: `аккаунт ${account} не найден` }, { status: 404 });
+  // Архивный аккаунт очередь не отдаёт: ссылки на файлы у Graph API берутся в
+  // момент запроса, а по удалённому аккаунту он ответит ошибкой на каждый
+  // ролик. Пусть завод сразу видит причину, а не тридцать пустых file_url.
+  if (row.archivedAt) {
+    return NextResponse.json(
+      { error: `аккаунт ${account} в архиве: ${row.archiveNote || "убран"}`, total: 0, items: [] },
+      { status: 409 }
+    );
+  }
 
   const done = new Set(
     (await prisma.mirrorLog.findMany({ where: { platform }, select: { permalink: true } }))

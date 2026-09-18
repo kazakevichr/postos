@@ -218,3 +218,24 @@ export async function setSchedule(kind: string, mode: string, time?: string) {
     update: { value },
   });
 }
+
+// ── Аккаунт ↔ рубильник ────────────────────────────────────────────────────
+// Матрица маршрутов живёт в терминах площадок (ig_main / ig_woman / ig_man),
+// а карточка в «Соц.Сетях» — в терминах аккаунтов. Карта связывает одно с
+// другим и отвечает сразу на два вопроса: что гасить при архивации аккаунта и
+// почему он сейчас не публикуется.
+//
+// ЗАВОДИТЕ НОВЫЙ АККАУНТ — впишите его сюда. Иначе он будет считаться
+// незаводским: статистика собирается, публикация не предполагается.
+export const ACCOUNT_PLATFORM: Record<string, string> = {
+  "super.fit24": "ig_main",
+  superfit24_woman: "ig_woman",
+  superfit24_training: "ig_man",
+  superfit05: "tiktok",
+  SuperFit: "youtube",
+};
+
+export function platformFor(username: string): string | null {
+  const u = (username || "").replace(/^@/, "");
+  return ACCOUNT_PLATFORM[u] ?? null;
+}
