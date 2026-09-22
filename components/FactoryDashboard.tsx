@@ -77,14 +77,17 @@ export default function FactoryDashboard({
     const j = await r.json();
     setJobs(j.jobs || []);
   }
+  // Смена направления в переключателе перерисовывает страницу на сервере, но
+  // данные здесь клиентские: без projectName в зависимостях под заголовком
+  // «MoneyBall» оставались план и матрица СуперФита до ручной перезагрузки.
   useEffect(() => {
     loadPlan(month);
-  }, [month]);
+  }, [month, projectName]);
   // Период общий для заводской и ручной статистики — как в «Соц.Сетях».
   useEffect(() => {
     loadJobs(days);
     fetch(`/api/factory/manual?days=${days}`).then((r) => r.json()).then(setManual).catch(() => {});
-  }, [days]);
+  }, [days, projectName]);
 
   const cell = (date: string, slot: string) =>
     (plan?.plan || []).find((r: any) => r.date === date && r.slot === slot);
@@ -209,7 +212,10 @@ export default function FactoryDashboard({
               </button>
             )}
           </div>
-          <table className="w-full text-sm border-collapse min-w-[900px]">
+          {/* key по бренду: поля тем неуправляемые (defaultValue), а столбец make
+              есть у двух заводов — без пересоздания в Персонаже MoneyBall
+              осталась бы тема СуперФита. */}
+          <table key={plan.brand} className="w-full text-sm border-collapse min-w-[900px]">
             <thead>
               <tr className="text-left text-gray-500">
                 <th className="p-2 w-20">Дата</th>
