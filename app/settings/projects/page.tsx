@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import ProjectSettingsForm from "@/components/ProjectSettingsForm";
+import NewProjectForm from "@/components/NewProjectForm";
 import { brandNames } from "@/lib/insta";
 import { ALL_BRAND_KEYS } from "@/lib/brands";
 import Link from "next/link";
@@ -34,6 +35,7 @@ export default async function ProjectSettingsPage() {
         {projects.map((p) => (
           <ProjectSettingsForm key={p.id} project={p} brands={brands} />
         ))}
+        <NewProjectForm />
       </div>
     </div>
   );

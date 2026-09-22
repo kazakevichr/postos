@@ -4,6 +4,7 @@
 import { prisma } from "@/lib/prisma";
 import { brandFor } from "@/lib/insta";
 import { scheduleMap } from "@/lib/routes";
+import { MB_FORMATS, MONEYBALL, mbSchedule, ruleLabel } from "@/lib/moneyball";
 import type { SocialScope } from "@/lib/access";
 
 // Все производимые типы, кроме нарезок (чужой контент, темы не планируются)
@@ -33,6 +34,36 @@ export const DEFAULT_BRAND = "superfit";
 export function factoryBrand(scope: SocialScope): string {
   return scope.brands?.[0] || DEFAULT_BRAND;
 }
+
+/**
+ * Заводы со своим ключом, и переменная названа по бренду: MONEYBALL_KEY.
+ *
+ * Отдельная переменная, а не строка в FACTORY_KEYS, по двум причинам. Там уже
+ * лежит ключ Оракла, и дописывая MoneyBall в общую строку, её легко испортить
+ * целиком. И по имени сразу видно, чей это ключ.
+ *
+ * Такой завод свой бренд знает точно, поэтому ему верят без догадок: ни
+ * аккаунт публикации, ни тип контента его не переспорят. Назваться им чужим
+ * ключом тоже нельзя.
+ */
+const OWN_KEY_ENV: Record<string, string> = { [MONEYBALL]: "MONEYBALL_KEY" };
+export const OWN_KEY_BRANDS = new Set(Object.keys(OWN_KEY_ENV));
+
+function ownKeyBrand(key: string): string | null {
+  for (const [brand, env] of Object.entries(OWN_KEY_ENV)) {
+    const need = (process.env[env] || "").trim();
+    if (need && key === need) return brand;
+  }
+  return null;
+}
+
+/**
+ * Заводы, которые сами не публикуют: готовое уходит в бот выдачи, выкладывает
+ * человек. Для них «готов» — последнее, что завод может сообщить. По нему и
+ * вписывается тема в план, и меряется молчание: «опубликован» от них не
+ * придёт никогда.
+ */
+export const DELIVERY_ONLY = new Set([MONEYBALL]);
 
 /**
  * Ключи заводов из настроек: «ключ → бренд».
@@ -95,6 +126,9 @@ export function factoryAuth(req: Request, body?: any): string | null {
   const key = req.headers.get("x-factory-key") || "";
   if (!key) return null;
 
+  const own = ownKeyBrand(key);
+  if (own) return own;
+
   const brand =
     process.env.IG_HOST_KEY && key === process.env.IG_HOST_KEY
       ? DEFAULT_BRAND
@@ -102,6 +136,9 @@ export function factoryAuth(req: Request, body?: any): string | null {
   if (!brand) return null;
 
   const said = String(req.headers.get("x-factory-brand") || body?.brand || "").trim();
+  // Завод со своим ключом нельзя изобразить чужим: иначе общий ключ открывал
+  // бы его расписание и писал бы в его журнал.
+  if (said && OWN_KEY_BRANDS.has(said)) return brand;
   return said || brand;
 }
 
@@ -123,6 +160,14 @@ export function jobBrands(
   const byKind = new Map<string, string>();
 
   for (const r of rows) {
+    // Завод со своим ключом назвал себя сам, и догадка тут только навредит:
+    // его ссылки ведут на аккаунты вне BRAND_MAP (и стали бы оракловскими), а
+    // типы у него те же, что у соседей. Учиться на нём тоже нельзя: иначе его
+    // Персонаж (make) научил бы суперфитовские заказы считаться его.
+    if (OWN_KEY_BRANDS.has(r.brand)) {
+      byJob.set(r.jobId, r.brand);
+      continue;
+    }
     let links: any[] = [];
     try {
       links = JSON.parse(r.links);
@@ -153,6 +198,16 @@ export function jobBrands(
  * Пустой журнал даёт пустую сетку — это честнее выдуманных строк.
  */
 export async function planSlots(brand: string = DEFAULT_BRAND) {
+  // У MoneyBall своё расписание: строки — его форматы, время — его график.
+  if (brand === MONEYBALL) {
+    const sched = await mbSchedule();
+    return MB_FORMATS.map((f) => {
+      const rule = sched[f.kind];
+      const active = rule.mode === "time";
+      return { slot: f.kind, label: f.label, fromPlan: f.fromPlan, active, time: active ? ruleLabel(rule) : "—" };
+    });
+  }
+
   if (brand === DEFAULT_BRAND) {
     const sched = await scheduleMap();
     return PLAN_KINDS.map((k) => {

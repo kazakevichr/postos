@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { plural, raise, resolve, resolveOthers } from "@/lib/notices";
 import { PROJECTS, wallets } from "@/lib/wallets";
 import { SUSPICIOUS_AFTER } from "@/lib/insta";
+import { brandLabel } from "@/lib/brands";
+import { DELIVERY_ONLY } from "@/lib/factory";
+import { MONEYBALL } from "@/lib/moneyball";
 
 // Проверяльщики: единственное место, где уведомления рождаются и гаснут.
 //
@@ -147,32 +150,43 @@ async function checkFactory() {
     const key = `factory:fail:${k}`;
     keep.push(key);
     const last = list[0];
+    // Бренд в заголовке: заводов три, а make есть и у СуперФита, и у MoneyBall.
     await raise({
       key, kind: "factory", level: list.length >= 3 ? "crit" : "warn", brand: last.brand,
       times: list.length,
       title: list.length > 1
-        ? `Заказ «${last.kind}» падает ${plural(list.length, "раз", "раза", "раз")} за три дня`
-        : `Заказ «${last.kind}» не вышел: ${last.event}`,
+        ? `${brandLabel(last.brand)}: заказ «${last.kind}» падает ${plural(list.length, "раз", "раза", "раз")} за три дня`
+        : `${brandLabel(last.brand)}: заказ «${last.kind}» не вышел: ${last.event}`,
       body: (last.error || "").slice(0, 300) || "Завод не прислал текст ошибки.",
       href: "/factory", actionText: "Открыть журнал",
     });
   }
 
-  // Молчание: последнее «опубликован» по бренду.
-  for (const brand of ["superfit", "oracle"]) {
+  // Молчание: последний выпуск по бренду. У завода, который сам не публикует,
+  // выпуск — «готов»: дальше ролик выкладывает человек.
+  //
+  // MoneyBall по графику собирает два-три ролика в день, поэтому сутки тишины
+  // у него уже беда. Три дня — порог заводов, которые выходят реже.
+  const GENITIVE: Record<string, string> = { superfit: "СуперФита", oracle: "Оракла", [MONEYBALL]: "MoneyBall" };
+  const LIMITS: Record<string, [number, number]> = { [MONEYBALL]: [1, 3] };
+  for (const brand of ["superfit", "oracle", MONEYBALL]) {
+    const own = DELIVERY_ONLY.has(brand);
     const last = await prisma.factoryJob.findFirst({
-      where: { brand, event: "опубликован" },
+      where: { brand, event: { in: own ? ["опубликован", "готов"] : ["опубликован"] } },
       orderBy: { at: "desc" },
     });
     if (!last) continue;
+    const [warn, crit] = LIMITS[brand] || [3, 7];
     const days = Math.floor((Date.now() - +last.at) / DAY);
-    if (days >= 3) {
+    if (days >= warn) {
       const key = `factory:silent:${brand}`;
       keep.push(key);
       await raise({
-        key, kind: "factory", level: days >= 7 ? "crit" : "warn", brand,
-        title: `Завод ${brand === "oracle" ? "Оракла" : "СуперФита"} молчит ${plural(days, "день", "дня", "дней")}`,
-        body: `Последняя публикация — ${dt(last.at)}. Проверьте маршруты и кошельки: завод не производит, если выпускать некуда или платить нечем.`,
+        key, kind: "factory", level: days >= crit ? "crit" : "warn", brand,
+        title: `Завод ${GENITIVE[brand]} молчит ${plural(days, "день", "дня", "дней")}`,
+        body: own
+          ? `Последний готовый ролик — ${dt(last.at)}. Проверьте расписание в разделе «Контент-завод» и кошельки: завод не собирает, если платить нечем.`
+          : `Последняя публикация — ${dt(last.at)}. Проверьте маршруты и кошельки: завод не производит, если выпускать некуда или платить нечем.`,
         href: "/factory", actionText: "К заводу",
       });
     }
@@ -218,6 +232,9 @@ async function checkPeople() {
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  // MoneyBall сюда не входит: Новости и Прогнозы темы из плана не берут, а
+  // Персонаж без темы находит её сам. Напоминание о пустом плане было бы
+  // ложной тревогой.
   for (const brand of ["superfit", "oracle"]) {
     const ahead = await prisma.planSlot.count({ where: { brand, date: { gte: today } } });
     if (ahead > 0 && ahead <= 3) {

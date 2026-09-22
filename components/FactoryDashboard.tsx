@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import RouteMatrix from "@/components/RouteMatrix";
 import QuotaBoard from "@/components/QuotaBoard";
+import MoneyballSchedule from "@/components/MoneyballSchedule";
 
 const fmt = (n: any) => (n == null ? "—" : Number(n).toLocaleString("ru-RU"));
 
@@ -24,7 +25,7 @@ function Hint({ text }: { text: string }) {
 }
 
 const BRAND_NAMES: Record<string, string> = {
-  superfit: "СуперФит", party: "Вечеринки", oracle: "Оракл", other: "Прочее",
+  superfit: "СуперФит", party: "Вечеринки", oracle: "Оракл", moneyball: "MoneyBall", other: "Прочее",
 };
 
 const EVENT_BADGE: Record<string, string> = {
@@ -64,6 +65,8 @@ export default function FactoryDashboard({
   // СуперФита — площадки, гайды, рационы; у второго завода свои площадки и
   // свои темы, и показывать ему чужие настройки нечестно.
   const isDefaultFactory = !plan || plan.brand === "superfit";
+  // У MoneyBall площадок нет, зато есть своё расписание по дням недели.
+  const isMoneyball = plan?.brand === "moneyball";
 
   async function loadPlan(m: string) {
     const r = await fetch(`/api/factory/plan-admin?month=${m}`);
@@ -186,6 +189,9 @@ export default function FactoryDashboard({
           показываем и не спрашиваем, иначе раздел встречает партнёра пустым
           местом и 403 в консоли. */}
       {tab === "plan" && canManage && isDefaultFactory && <RouteMatrix canManage={canManage} />}
+      {tab === "plan" && isMoneyball && (
+        <MoneyballSchedule canManage={canManage} onSaved={() => loadPlan(month)} />
+      )}
 
       {tab === "plan" && plan && (
         <div className="card overflow-x-auto">
@@ -222,11 +228,14 @@ export default function FactoryDashboard({
                   </td>
                   {(plan.slots || []).map((s: any) => (
                     <td key={s.slot} className="p-1 align-top">
+                      {/* Формат, который берёт тему сам (Новости, Прогнозы MoneyBall),
+                          вписанную тему проигнорирует — поле только показывает,
+                          что вышло. */}
                       <textarea
                         rows={2}
-                        readOnly={!canManage}
+                        readOnly={!canManage || s.fromPlan === false}
                         defaultValue={cell(date, s.slot)?.topic || ""}
-                        placeholder={s.active ? "тема…" : "заморожен"}
+                        placeholder={s.fromPlan === false ? "тему берёт сам" : s.active ? "тема…" : "заморожен"}
                         title={cell(date, s.slot)?.facts || ""}
                         onBlur={(e) => canManage && saveCell(date, s.slot, e.target.value)}
                         className={`w-full text-xs border rounded-md p-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-brand-500 ${

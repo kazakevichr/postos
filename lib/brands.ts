@@ -9,6 +9,7 @@ export const BRAND_NAMES: Record<string, string> = {
   superfit: "СуперФит",
   party: "Вечеринки",
   oracle: "Оракл",
+  moneyball: "MoneyBall",
   other: "Прочее",
 };
 
@@ -16,8 +17,9 @@ export const brandLabel = (key: string) => BRAND_NAMES[key] || key;
 
 // Бренды, которые вообще бывают: настроенные для сбора плюс те, что уже
 // встретились на аккаунтах. Оракл живёт своими каналами, а не BRAND_MAP,
-// поэтому добавляем его явно — иначе его нечем было бы выбрать.
-export const ALL_BRAND_KEYS = ["superfit", "party", "oracle", "other"];
+// поэтому добавляем его явно — иначе его нечем было бы выбрать. MoneyBall
+// тоже: площадок у него пока нет, а завод и направление уже есть.
+export const ALL_BRAND_KEYS = ["superfit", "party", "oracle", "moneyball", "other"];
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
 

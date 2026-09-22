@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { factoryAuth, jobBrands } from "@/lib/factory";
+import { DELIVERY_ONLY, factoryAuth, jobBrands } from "@/lib/factory";
+import { brandLabel } from "@/lib/brands";
 import { notifyRoles } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,11 @@ export async function POST(req: Request) {
   // Факт задним числом: опубликованный заказ вписывает свою тему в пустую
   // клетку плана. Для avatar это единственный способ попасть в план (он не
   // планируется вперёд), для остальных слотов факт полезнее пустоты.
-  if (fields.event === "опубликован" && fields.date && fields.slot && fields.topic) {
+  // Завод, который сам не публикует, дальше «готов» не доходит — для него
+  // это и есть выпуск.
+  const released =
+    fields.event === "опубликован" || (fields.event === "готов" && DELIVERY_ONLY.has(brand));
+  if (released && fields.date && fields.slot && fields.topic) {
     const key = { brand, date: fields.date, slot: fields.slot };
     const cell = await prisma.planSlot.findUnique({ where: { brand_date_slot: key } });
     if (!cell || !cell.topic.trim()) {
@@ -71,8 +76,9 @@ export async function POST(req: Request) {
       `📤 <b>Опубликовано</b>${fields.kind ? ` · ${fields.kind}` : ""}\n${fields.topic || "(без темы)"}` +
       (where ? `\n${where}` : ""));
   } else if (fields.event === "ошибка" || fields.event === "не принят") {
+    // Заводов три, и «Завод: ошибка · make» не говорит, чей это make.
     void notifyRoles(["SMM", "OWNER"],
-      `⚠️ <b>Завод: ${fields.event}</b>${fields.kind ? ` · ${fields.kind}` : ""}\n` +
+      `⚠️ <b>Завод ${brandLabel(brand)}: ${fields.event}</b>${fields.kind ? ` · ${fields.kind}` : ""}\n` +
       `${fields.topic || "(без темы)"}${fields.error ? `\n${fields.error}` : ""}`);
   }
   return NextResponse.json({ ok: true });
