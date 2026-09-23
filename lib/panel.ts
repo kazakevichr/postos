@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { brandLabel } from "@/lib/brands";
 import { DEFAULT_BRAND } from "@/lib/factory";
 import { MB_FORMATS, MONEYBALL, mbSchedule } from "@/lib/moneyball";
-import { msk, ordersOf, refresh } from "@/lib/orders";
+import { msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
 import { channelsOf, STATE_WORD, type ChannelView } from "@/lib/channels";
 import {
   KINDS, baseKind, blocked, kindsWithDonors, publishMap, routeMap, scheduleMap, SCHEDULABLE,
@@ -199,6 +199,10 @@ export async function panelData(brand: string) {
     : null;
   return {
     brand, label: brandLabel(brand), tz: "Europe/Moscow", now, bot: DELIVERY_BOT,
+    // Кто решает, когда производить: Постос заказом или завод сам по
+    // расписанию. У MoneyBall выбора нет, у СуперФита это переключается.
+    orders: await ordersEnabled(brand),
+    switchable: brand !== MONEYBALL && Boolean(body),
     ...(body || { channels: [], groups: [], today: [], scheduleApi: null }),
     // Заводы, до которых пульт ещё не дотянулся (Оракл), честно говорят об
     // этом: они публикуют сами и о своих планах Постосу не сообщают.

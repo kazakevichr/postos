@@ -159,6 +159,28 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     <div className="space-y-4 mb-4">
       {note && <p className="text-sm text-red-600">{note}</p>}
 
+      {data.switchable && canManage && (
+        <div className="card flex flex-wrap items-center justify-between gap-3 py-3">
+          <div>
+            <div className="font-medium text-sm">Кто решает, когда производить</div>
+            <div className="text-xs text-gray-500">
+              {data.orders
+                ? "Постос: в назначенное время он заводит заказ, завод его забирает"
+                : "завод сам, по расписанию, которое получает отсюда — старый путь"}
+            </div>
+            <div className="text-xs text-gray-400 mt-0.5">
+              Переключается в два действия: этот тумблер и ORDERS=1 в .env завода.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <span className={data.orders ? "text-gray-400" : ""}>завод</span>
+            <Switch on={data.orders} tag="orders" label="Заказы из Постоса"
+              onClick={() => send("/api/factory/panel", { orders: !data.orders }, "orders")} />
+            <span className={data.orders ? "" : "text-gray-400"}>Постос</span>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <Tile
           label="Сегодня"

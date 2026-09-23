@@ -15,20 +15,70 @@
 // завод перезапускался: заказ лежит и ждёт, а не теряется в неудавшемся
 // запросе.
 import { prisma } from "@/lib/prisma";
-import { DELIVERY_ONLY } from "@/lib/factory";
+import { DEFAULT_BRAND, DELIVERY_ONLY } from "@/lib/factory";
 import { MB_FORMATS, MONEYBALL, mbSchedule } from "@/lib/moneyball";
+import { SCHEDULABLE, scheduleMap } from "@/lib/routes";
 
 /** Расписание заводов живёт в московском времени — один сдвиг на всё. */
 const MSK_MS = 3 * 60 * 60 * 1000;
 /** Сколько заказ ждёт завода. Дальше он уже не нужен: Новости в 09:00,
  *  собранные в 13:00, — это не «догнали», это мусор в ленте. */
 const GRACE_MIN = 3 * 60;
-/** Через сколько взятый заказ считается потерянным: завод упал, и ролика не
- *  будет. Сам не повторяем — сборка стоит денег, повтор решает человек. */
-const STALE_MIN = 120;
 
-/** Заводы, которым Постос выдаёт заказы. Остальные пока работают по-старому. */
-export const ORDER_BRANDS = [MONEYBALL];
+/**
+ * Через сколько взятый заказ считается потерянным. Сам не повторяем — сборка
+ * стоит денег, повтор решает человек.
+ *
+ * У заводов это очень разное время. MoneyBall собирает ролик подряд, и два
+ * часа молчания значат, что он упал. У СуперФита между «взял» и «готов» стоит
+ * согласование текста человеком: там заказ может честно ждать полдня.
+ */
+const STALE_MIN: Record<string, number> = { [MONEYBALL]: 120, [DEFAULT_BRAND]: 12 * 60 };
+const staleOf = (brand: string) => STALE_MIN[brand] ?? 120;
+
+/**
+ * Заводы, которые берут заказы по одному.
+ *
+ * MoneyBall собирает ролик целиком в одном процессе — вторая сборка ему не
+ * нужна ни по памяти, ни по деньгам. У СуперФита своя очередь и своё
+ * согласование: заказ на Персонажа, ждущий кнопки, не должен задерживать
+ * ИИ-аватара, у которого свой час.
+ */
+const SINGLE = new Set([MONEYBALL]);
+
+/**
+ * Заводы, которым Постос выдаёт заказы.
+ *
+ * MoneyBall — всегда: он для этого и построен. СуперФит переключается
+ * тумблером в пульте, потому что на его стороне остаётся старый путь, и
+ * переключать надо в два действия и с возможностью вернуться.
+ */
+export async function ordersEnabled(brand: string) {
+  if (brand === MONEYBALL) return true;
+  if (brand !== DEFAULT_BRAND) return false;
+  const row = await prisma.setting.findUnique({ where: { key: `orders:${brand}` } });
+  return row?.value === "on";
+}
+
+export async function setOrders(brand: string, on: boolean) {
+  if (brand === MONEYBALL) throw new Error("MoneyBall работает только по заказам");
+  const value = on ? "on" : "off";
+  await prisma.setting.upsert({
+    where: { key: `orders:${brand}` },
+    create: { key: `orders:${brand}`, value },
+    update: { value },
+  });
+  // Вернули завод на старый путь — незабранные заказы убираем. Иначе они
+  // доживут до конца запаса и лягут в журнал пропусками, которых не было:
+  // завод в это время работал по своему расписанию.
+  if (!on) await prisma.factoryOrder.deleteMany({ where: { brand, state: "план" } });
+}
+
+export async function orderBrands() {
+  const out = [MONEYBALL];
+  if (await ordersEnabled(DEFAULT_BRAND)) out.push(DEFAULT_BRAND);
+  return out;
+}
 
 type Moment = { date: string; weekday: number; time: string; minutes: number };
 
@@ -72,20 +122,35 @@ type Slot = { kind: string; date: string; at: string; late: number; bot: boolean
  * положенным и в полночь.
  */
 async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
-  if (!ORDER_BRANDS.includes(brand)) return []; // остальные заводы заказов не получают
-  const sched = await mbSchedule();
-  const out: Slot[] = [];
-  for (const back of [1, 0]) {
-    const day = msk(new Date(now.getTime() - back * 864e5));
+  if (!(await ordersEnabled(brand))) return []; // завод пока живёт по-старому
+
+  // Расписания у заводов разные: у MoneyBall дни недели и несколько запусков,
+  // у СуперФита один ежедневный час на тип. Наружу оба выглядят одинаково.
+  const rules: { kind: string; days: number[]; time: string; bot: boolean }[] = [];
+  if (brand === MONEYBALL) {
+    const sched = await mbSchedule();
     for (const f of MB_FORMATS) {
       const rule = sched[f.kind];
       if (!rule || rule.mode !== "time") continue;
-      for (const s of rule.slots) {
-        if (!s.days.includes(day.weekday)) continue;
-        const late = (now.getTime() - slotAt(day.date, s.time)) / 60000;
-        if (late < 0) continue;
-        out.push({ kind: f.kind, date: day.date, at: s.time, late, bot: rule.bot !== false });
-      }
+      for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot: rule.bot !== false });
+    }
+  } else {
+    const sched = await scheduleMap();
+    for (const kind of SCHEDULABLE) {
+      const s = sched[kind];
+      if (s?.mode !== "time" || !s.time) continue;
+      rules.push({ kind, days: [1, 2, 3, 4, 5, 6, 7], time: s.time, bot: true });
+    }
+  }
+
+  const out: Slot[] = [];
+  for (const back of [1, 0]) {
+    const day = msk(new Date(now.getTime() - back * 864e5));
+    for (const r of rules) {
+      if (!r.days.includes(day.weekday)) continue;
+      const late = (now.getTime() - slotAt(day.date, r.time)) / 60000;
+      if (late < 0) continue;
+      out.push({ kind: r.kind, date: day.date, at: r.time, late, bot: r.bot });
     }
   }
   return out.sort((a, b) => b.late - a.late); // самый старый — первым
@@ -151,7 +216,7 @@ export async function refresh(brand: string, now = new Date()) {
   // собраться и уйти в бот, а вторая сборка — это вторые деньги.
   const lost = await prisma.factoryOrder.findMany({ where: { brand, state: { in: ["выдан", "собирается"] } } });
   for (const o of lost) {
-    if (!o.takenAt || (now.getTime() - +o.takenAt) / 60000 <= STALE_MIN) continue;
+    if (!o.takenAt || (now.getTime() - +o.takenAt) / 60000 <= staleOf(brand)) continue;
     await prisma.factoryOrder.update({ where: { id: o.id }, data: { state: "ошибка", doneAt: now, error: "завод пропал во время сборки" } });
     await toJournal(o, "ошибка", "Завод взял заказ и пропал. Сборку заново не начинаем: проверьте бот выдачи, ролик мог дойти");
   }
@@ -164,10 +229,15 @@ export async function refresh(brand: string, now = new Date()) {
  * разом заводу не нужны — ни по памяти, ни по деньгам.
  */
 export async function claim(brand: string, now = new Date()) {
+  // Выключенный тумблер должен останавливать выдачу сразу, а не после того,
+  // как разойдутся уже заведённые заказы.
+  if (!(await ordersEnabled(brand))) return null;
   await refresh(brand, now);
 
-  const busy = await prisma.factoryOrder.findFirst({ where: { brand, state: { in: ["выдан", "собирается"] } } });
-  if (busy) return null;
+  if (SINGLE.has(brand)) {
+    const busy = await prisma.factoryOrder.findFirst({ where: { brand, state: { in: ["выдан", "собирается"] } } });
+    if (busy) return null;
+  }
 
   // Берём только то, что не просрочено: Новости девяти утра, собранные к
   // обеду, — это не «догнали», это мусор в ленте.

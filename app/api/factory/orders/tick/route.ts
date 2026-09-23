@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { factoryAuth } from "@/lib/factory";
-import { ORDER_BRANDS, refresh } from "@/lib/orders";
+import { orderBrands, refresh } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,6 @@ export const dynamic = "force-dynamic";
 // внутренние проверки.
 export async function POST(req: Request) {
   if (!factoryAuth(req)) return new NextResponse("forbidden", { status: 403 });
-  for (const brand of ORDER_BRANDS) await refresh(brand);
+  for (const brand of await orderBrands()) await refresh(brand);
   return NextResponse.json({ ok: true });
 }
