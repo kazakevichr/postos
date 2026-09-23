@@ -5,9 +5,15 @@
 // и того же — это то, обо что спотыкался Роман: «нужно, чтобы был единый, как
 // у MoneyBall» (23.09.2026).
 //
-// Теперь правило общее: формат → режим (по расписанию / по запросу), список
-// запусков (дни недели + время по Москве) и выдача в бот. Хранится строкой на
-// бренд: Setting `factory:schedule:<бренд>`.
+// Теперь правило общее: формат → режим (по расписанию / по запросу) и список
+// запусков (дни недели + время по Москве). Хранится строкой на бренд: Setting
+// `factory:schedule:<бренд>`.
+//
+// Выдачи в бот здесь НЕТ, хотя раньше она лежала в расписании MoneyBall.
+// Тумблер выдачи живёт в lib/formats.ts вместе с согласованием: расписание
+// отвечает на вопрос «когда», форматы — «что и куда». Пока флаг был в двух
+// местах, пульт читал его из расписания, а тумблер писал в форматы — и
+// переключатель возвращался обратно.
 //
 // СТАРОЕ РАСПИСАНИЕ СУПЕРФИТА ОСТАЛОСЬ ЖИТЬ РЯДОМ. Пока завод может вернуться
 // на свой путь (тумблер «кто решает, когда производить»), он читает матрицу
@@ -20,7 +26,7 @@ import { MB_DEFAULTS, MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
 import { KINDS, SCHEDULABLE, scheduleMap, setSchedule as setLegacy } from "@/lib/routes";
 
 export type Slot = { days: number[]; time: string };
-export type Rule = { mode: "time" | "demand"; slots: Slot[]; bot: boolean };
+export type Rule = { mode: "time" | "demand"; slots: Slot[] };
 
 const ALL = [1, 2, 3, 4, 5, 6, 7];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -64,7 +70,7 @@ export async function scheduleOf(brand: string): Promise<Record<string, Rule>> {
   if (brand === MONEYBALL) {
     for (const f of MB_FORMATS) {
       const rule = saved[f.kind] || MB_DEFAULTS[f.kind];
-      out[f.kind] = { mode: rule.mode, slots: rule.slots || [], bot: rule.bot !== false };
+      out[f.kind] = { mode: rule.mode, slots: rule.slots || [] };
     }
     return out;
   }
@@ -75,10 +81,9 @@ export async function scheduleOf(brand: string): Promise<Record<string, Rule>> {
     const fallback: Rule = {
       mode: s.mode === "time" ? "time" : "demand",
       slots: s.mode === "time" && s.time ? [{ days: [...ALL], time: s.time }] : [],
-      bot: true,
     };
     const rule = saved[f.kind] || fallback;
-    out[f.kind] = { mode: rule.mode, slots: rule.slots || [], bot: rule.bot !== false };
+    out[f.kind] = { mode: rule.mode, slots: rule.slots || [] };
   }
   return out;
 }
@@ -96,7 +101,7 @@ function clean(rule: any): Rule {
   });
   if (rule.mode === "time" && !slots.length) throw new Error("для режима «по расписанию» нужен хотя бы один запуск");
   slots.sort((a, b) => a.time.localeCompare(b.time) || a.days[0] - b.days[0]);
-  return { mode: rule.mode, slots, bot: rule.bot !== false };
+  return { mode: rule.mode, slots };
 }
 
 export async function setRule(brand: string, kind: string, rule: unknown) {

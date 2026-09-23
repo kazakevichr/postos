@@ -90,9 +90,9 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       week: slots.reduce((n, s) => n + s.days.length, 0),
       next: rule.mode === "time" ? nextRun(rule.slots, now) : "",
       publish: "сразу",
-      // Выдача у MoneyBall живёт в его расписании: она уезжает в заказ полем
-      // deliver_bot, и завод её слушает. Согласования у него нет вовсе.
-      bot: rule.bot, approval: set.approval, off: false,
+      // Выдача уезжает в заказ полем deliver_bot, и завод её слушает.
+      // Согласования у MoneyBall нет вовсе.
+      bot: set.bot, approval: set.approval, off: false,
       routes: [] as PanelRoute[], canSchedule: true, canProduce: true,
     };
     formats.push({ ...base, warn: warnOf(base, channels.length > 0, botOn) });
@@ -151,10 +151,10 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
           when: "после вашего поста", publish: "сразу", canSchedule: false, canProduce: false,
         }
       : (() => {
-          const rule = sched[k.kind] || { mode: "demand" as const, slots: [], bot: true };
+          const rule = sched[k.kind] || { mode: "demand" as const, slots: [] };
           const slots: PanelSlot[] = rule.mode === "time" ? rule.slots : [];
           return {
-            ...common, bot: rule.bot, mode: rule.mode as PanelFormat["mode"],
+            ...common, mode: rule.mode as PanelFormat["mode"],
             slots: rule.slots, when: ruleLabel(rule),
             week: slots.reduce((n, x) => n + x.days.length, 0), next: nextRun(slots, now), publish: "сразу",
             canSchedule: true, canProduce: true,
@@ -219,7 +219,7 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
       approvalToggle: "pending",
       approvalNote: "сейчас согласование задано на заводе: тумблер начнёт работать, когда он научится читать это из заказа",
       scheduleDays: true,
-      scheduleNote: "вернёте завод на собственное расписание — он поймёт только первый запуск в день и целый час",
+      scheduleNote: "пока заказами управляет Постос, расписание работает целиком. Вернёте завод на собственное — он поймёт только первый запуск в день, целый час и без выбора дней",
     },
   };
 }

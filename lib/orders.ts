@@ -17,6 +17,7 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_BRAND, DELIVERY_ONLY } from "@/lib/factory";
 import { MONEYBALL } from "@/lib/moneyball";
+import { brandBot, formatOf } from "@/lib/formats";
 import { brandFormats, scheduleOf } from "@/lib/schedule";
 import { blocked, routeMap } from "@/lib/routes";
 
@@ -125,33 +126,31 @@ type Slot = { kind: string; date: string; at: string; late: number; bot: boolean
 async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
   if (!(await ordersEnabled(brand))) return []; // завод пока живёт по-старому
 
-  // Расписание у всех заводов одно и то же по устройству: дни недели, время
-  // по Москве и выдача в бот.
+  // Расписание у всех заводов одно и то же по устройству: дни недели и время
+  // по Москве.
   const sched = await scheduleOf(brand);
+  const botOn = await brandBot(brand);
   const rules: { kind: string; days: number[]; time: string; bot: boolean }[] = [];
-  if (brand === MONEYBALL) {
-    for (const f of brandFormats(brand)) {
-      const rule = sched[f.kind];
-      if (!rule || rule.mode !== "time") continue;
-      for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot: rule.bot !== false });
-    }
-  } else {
-    const flags = await routeMap();
-    // Завод СуперФита не начинает производство, когда публиковать некуда
-    // (правило Романа 26.08: выключено в панели — токены не тратим). Значит,
-    // заказ на такой формат он всё равно отклонит. Не заводим его вовсе:
-    // иначе каждый день копились бы отказы, которых никто не совершал, и
-    // уведомления кричали бы о поломке там, где просто закрыт маршрут.
-    const open = (kind: string) =>
-      Object.keys(flags).some((k) => {
-        const [platform, kk] = k.split("|");
-        return kk === kind && flags[k] && flags[`${platform}|*`] !== false && !blocked(platform, kind);
-      });
-    for (const f of brandFormats(brand)) {
-      const rule = sched[f.kind];
-      if (!rule || rule.mode !== "time" || !open(f.kind)) continue;
-      for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot: rule.bot !== false });
-    }
+
+  // Куда уйдёт готовое. Завод не начинает производство, когда отдавать некуда
+  // (правило Романа 26.08: выключено в пульте — токены не тратим), но «некуда»
+  // теперь значит «и бот выключен, и все каналы закрыты». Пока в счёт шли
+  // только каналы, включённая выдача в бот ничего не производила — а Роман
+  // просил ровно обратного: тумблеры включены → ролик приходит в бот.
+  const flags = brand === MONEYBALL ? {} : await routeMap();
+  const openRoute = (kind: string) =>
+    Object.keys(flags).some((k) => {
+      const [platform, kk] = k.split("|");
+      return kk === kind && flags[k] && flags[`${platform}|*`] !== false && !blocked(platform, kind);
+    });
+
+  for (const f of brandFormats(brand)) {
+    const rule = sched[f.kind];
+    if (!rule || rule.mode !== "time") continue;
+    const set = await formatOf(brand, f.kind);
+    const bot = botOn && set.bot;
+    if (!bot && !openRoute(f.kind)) continue;
+    for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot });
   }
 
   const out: Slot[] = [];

@@ -49,6 +49,9 @@ const SEED: Record<string, { key: string; title: string; net: string; account: s
 /** Завести каналы бренда, если их ещё нет. Пустой список — это не ошибка:
  *  у MoneyBall площадок пока нет вовсе, и выдумывать их незачем. */
 export async function ensureChannels(brand: string) {
+  // Подпись «публикует завод» осталась от первой раздачи каналов. Теперь ровно
+  // это говорит строка «аккаунт подключён», и вторая копия только путает.
+  await prisma.channel.updateMany({ where: { brand, note: "публикует завод" }, data: { note: "" } });
   const seed = SEED[brand];
   if (!seed) return;
   const have = await prisma.channel.count({ where: { brand } });

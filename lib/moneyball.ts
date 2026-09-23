@@ -31,15 +31,8 @@ export const MB_FORMATS = [
 
 /** Один запуск в неделе: дни (1 — понедельник … 7 — воскресенье) и время старта по Москве. */
 export type MbSlot = { days: number[]; time: string };
-/**
- * Правило формата: когда собирать и куда отдавать готовое.
- *
- * bot — выдача в телеграм-бот. Это такой же тумблер, как площадка: её можно
- * выключить и оставить только соцсети (решение Романа 23.09.2026). Пока
- * площадок у MoneyBall нет, выключенная выдача означает, что ролик не увидит
- * никто, — пульт об этом предупреждает.
- */
-export type MbRule = { mode: "time" | "demand"; slots: MbSlot[]; bot: boolean };
+/** Правило формата: когда собирать. Куда отдавать готовое — в lib/formats.ts. */
+export type MbRule = { mode: "time" | "demand"; slots: MbSlot[] };
 
 const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
 
@@ -56,7 +49,6 @@ export const MB_DEFAULTS: Record<string, MbRule> = {
       { days: EVERY_DAY, time: "09:00" },
       { days: EVERY_DAY, time: "19:00" },
     ],
-    bot: true,
   },
   forecast: {
     mode: "time",
@@ -64,7 +56,6 @@ export const MB_DEFAULTS: Record<string, MbRule> = {
       { days: [6, 7], time: "10:30" },
       { days: [2], time: "13:00" },
     ],
-    bot: true,
   },
-  make: { mode: "time", slots: [{ days: [4], time: "20:00" }], bot: true },
+  make: { mode: "time", slots: [{ days: [4], time: "20:00" }] },
 };

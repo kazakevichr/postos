@@ -99,8 +99,8 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     return true;
   }
 
-  async function saveSchedule(kind: string, mode: string, slots: Slot[], bot: boolean) {
-    return put({ kind, rule: { mode, slots, bot } }, `s-${kind}`, "/api/factory/schedule");
+  async function saveSchedule(kind: string, mode: string, slots: Slot[]) {
+    return put({ kind, rule: { mode, slots } }, `s-${kind}`, "/api/factory/schedule");
   }
 
   async function togglePublish(kind: string, mode: string, at: string) {
@@ -145,7 +145,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     if (!f.canProduce) return;
     const on = f.mode === "time";
     const slots = f.slots.length ? f.slots : [{ days: [...ALL], time: "12:00" }];
-    return saveSchedule(f.kind, on ? "demand" : "time", slots, f.bot);
+    return saveSchedule(f.kind, on ? "demand" : "time", slots);
   }
 
   const Switch = ({ on, onClick, label, tag = "", dim = false }: any) => (
@@ -687,7 +687,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                       {dirty && canManage && (
                         <div className="flex gap-2 mt-2">
                           <button className="btn btn-primary text-xs" disabled={busy === `s-${f.kind}`}
-                            onClick={async () => { if (await saveSchedule(f.kind, draft.mode, draft.slots, f.bot)) setDraft({ mode: draft.mode, slots: draft.slots }); }}>
+                            onClick={async () => { if (await saveSchedule(f.kind, draft.mode, draft.slots)) setDraft({ mode: draft.mode, slots: draft.slots }); }}>
                             Сохранить расписание
                           </button>
                           <button className="btn btn-secondary text-xs" onClick={() => setDraft({ mode: f.mode, slots: copy(f.slots) })}>
