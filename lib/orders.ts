@@ -17,7 +17,7 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_BRAND, DELIVERY_ONLY } from "@/lib/factory";
 import { MB_FORMATS, MONEYBALL, mbSchedule } from "@/lib/moneyball";
-import { SCHEDULABLE, scheduleMap } from "@/lib/routes";
+import { blocked, routeMap, SCHEDULABLE, scheduleMap } from "@/lib/routes";
 
 /** Расписание заводов живёт в московском времени — один сдвиг на всё. */
 const MSK_MS = 3 * 60 * 60 * 1000;
@@ -135,10 +135,20 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
       for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot: rule.bot !== false });
     }
   } else {
-    const sched = await scheduleMap();
+    const [sched, flags] = await Promise.all([scheduleMap(), routeMap()]);
+    // Завод СуперФита не начинает производство, когда публиковать некуда
+    // (правило Романа 26.08: выключено в панели — токены не тратим). Значит,
+    // заказ на такой формат он всё равно отклонит. Не заводим его вовсе:
+    // иначе каждый день копились бы отказы, которых никто не совершал, и
+    // уведомления кричали бы о поломке там, где просто закрыт маршрут.
+    const open = (kind: string) =>
+      Object.keys(flags).some((k) => {
+        const [platform, kk] = k.split("|");
+        return kk === kind && flags[k] && flags[`${platform}|*`] !== false && !blocked(platform, kind);
+      });
     for (const kind of SCHEDULABLE) {
       const s = sched[kind];
-      if (s?.mode !== "time" || !s.time) continue;
+      if (s?.mode !== "time" || !s.time || !open(kind)) continue;
       rules.push({ kind, days: [1, 2, 3, 4, 5, 6, 7], time: s.time, bot: true });
     }
   }
