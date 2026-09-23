@@ -84,10 +84,10 @@ export async function channelsOf(brand: string): Promise<ChannelView[]> {
   });
 }
 
-/** Правка канала: имя аккаунта, признак подключения, архив. */
+/** Правка канала: имя аккаунта, признак подключения, пауза, архив. */
 export async function saveChannel(
   brand: string, key: string,
-  patch: { account?: string; connected?: boolean; archived?: boolean },
+  patch: { account?: string; connected?: boolean; paused?: boolean; archived?: boolean },
 ) {
   await ensureChannels(brand);
   const data: Record<string, unknown> = {};
@@ -100,6 +100,9 @@ export async function saveChannel(
     if (patch.connected === undefined) data.mode = "manual";
   }
   if (patch.connected !== undefined) data.mode = patch.connected ? "factory" : "manual";
+  // Пауза СуперФита сюда не попадает: у него её хранит матрица маршрутов, и
+  // пульт правит именно её.
+  if (patch.paused !== undefined && brand !== DEFAULT_BRAND) data.paused = Boolean(patch.paused);
   if (patch.archived !== undefined) data.archived = Boolean(patch.archived);
   return prisma.channel.update({ where: { brand_key: { brand, key } }, data });
 }

@@ -200,7 +200,11 @@ export default function FactoryDashboard({
               </span>
               <button className="btn" onClick={() => setMonth(monthShift(month, 1))}>→</button>
             </div>
-            {canManage && isDefaultFactory && (
+            {/* Генерация есть у каждого завода со своим брифом: MoneyBall
+                получает темы Персонажа по рубрикам недели, СуперФит — по
+                своим гайдам. Форматы, которые берут тему сами (Новости,
+                Прогнозы), ручка не трогает. */}
+            {canManage && (
               <button className="btn btn-primary" onClick={generate} disabled={busy}>
                 {busy ? "Генерирую…" : "✨ Сгенерировать темы на месяц"}
               </button>

@@ -4,7 +4,8 @@
 import { prisma } from "@/lib/prisma";
 import { brandFor } from "@/lib/insta";
 import { scheduleMap } from "@/lib/routes";
-import { MB_FORMATS, MONEYBALL, mbSchedule, ruleLabel } from "@/lib/moneyball";
+import { MONEYBALL } from "@/lib/moneyball";
+import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
 import type { SocialScope } from "@/lib/access";
 
 // Все производимые типы, кроме нарезок (чужой контент, темы не планируются)
@@ -200,8 +201,8 @@ export function jobBrands(
 export async function planSlots(brand: string = DEFAULT_BRAND) {
   // У MoneyBall своё расписание: строки — его форматы, время — его график.
   if (brand === MONEYBALL) {
-    const sched = await mbSchedule();
-    return MB_FORMATS.map((f) => {
+    const sched = await scheduleOf(MONEYBALL);
+    return brandFormats(MONEYBALL).map((f) => {
       const rule = sched[f.kind];
       const active = rule.mode === "time";
       return { slot: f.kind, label: f.label, fromPlan: f.fromPlan, active, time: active ? ruleLabel(rule) : "—" };

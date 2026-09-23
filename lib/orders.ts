@@ -16,8 +16,9 @@
 // запросе.
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_BRAND, DELIVERY_ONLY } from "@/lib/factory";
-import { MB_FORMATS, MONEYBALL, mbSchedule } from "@/lib/moneyball";
-import { blocked, routeMap, SCHEDULABLE, scheduleMap } from "@/lib/routes";
+import { MONEYBALL } from "@/lib/moneyball";
+import { brandFormats, scheduleOf } from "@/lib/schedule";
+import { blocked, routeMap } from "@/lib/routes";
 
 /** Расписание заводов живёт в московском времени — один сдвиг на всё. */
 const MSK_MS = 3 * 60 * 60 * 1000;
@@ -124,18 +125,18 @@ type Slot = { kind: string; date: string; at: string; late: number; bot: boolean
 async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
   if (!(await ordersEnabled(brand))) return []; // завод пока живёт по-старому
 
-  // Расписания у заводов разные: у MoneyBall дни недели и несколько запусков,
-  // у СуперФита один ежедневный час на тип. Наружу оба выглядят одинаково.
+  // Расписание у всех заводов одно и то же по устройству: дни недели, время
+  // по Москве и выдача в бот.
+  const sched = await scheduleOf(brand);
   const rules: { kind: string; days: number[]; time: string; bot: boolean }[] = [];
   if (brand === MONEYBALL) {
-    const sched = await mbSchedule();
-    for (const f of MB_FORMATS) {
+    for (const f of brandFormats(brand)) {
       const rule = sched[f.kind];
       if (!rule || rule.mode !== "time") continue;
       for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot: rule.bot !== false });
     }
   } else {
-    const [sched, flags] = await Promise.all([scheduleMap(), routeMap()]);
+    const flags = await routeMap();
     // Завод СуперФита не начинает производство, когда публиковать некуда
     // (правило Романа 26.08: выключено в панели — токены не тратим). Значит,
     // заказ на такой формат он всё равно отклонит. Не заводим его вовсе:
@@ -146,10 +147,10 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
         const [platform, kk] = k.split("|");
         return kk === kind && flags[k] && flags[`${platform}|*`] !== false && !blocked(platform, kind);
       });
-    for (const kind of SCHEDULABLE) {
-      const s = sched[kind];
-      if (s?.mode !== "time" || !s.time || !open(kind)) continue;
-      rules.push({ kind, days: [1, 2, 3, 4, 5, 6, 7], time: s.time, bot: true });
+    for (const f of brandFormats(brand)) {
+      const rule = sched[f.kind];
+      if (!rule || rule.mode !== "time" || !open(f.kind)) continue;
+      for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot: rule.bot !== false });
     }
   }
 

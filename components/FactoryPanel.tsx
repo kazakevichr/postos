@@ -81,15 +81,15 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     );
   }
 
-  const { channels, archived, groups, today, now, scheduleApi, caps } = data;
+  const { channels, archived, groups, today, now, caps } = data;
   const chan = (key: string) => channels.find((c: any) => c.key === key);
   const formats: Format[] = groups.flatMap((g: any) => g.formats);
   const fmt = (kind: string) => formats.find((f) => f.kind === kind);
 
-  async function put(body: any, tag: string) {
+  async function put(body: any, tag: string, url = "/api/factory/panel") {
     setBusy(tag);
     setNote("");
-    const r = await fetch("/api/factory/panel", {
+    const r = await fetch(url, {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
     const j = await r.json().catch(() => ({}));
@@ -100,22 +100,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   }
 
   async function saveSchedule(kind: string, mode: string, slots: Slot[], bot: boolean) {
-    setBusy(`s-${kind}`);
-    setNote("");
-    const r = scheduleApi === "moneyball"
-      ? await fetch("/api/moneyball/schedule", {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ kind, rule: { mode, slots, bot } }),
-        })
-      : await fetch("/api/factory/routes", {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ kind, schedule: { mode, time: slots[0]?.time || "08:00" } }),
-        });
-    const j = await r.json().catch(() => ({}));
-    if (j.error) setNote(j.error);
-    await load();
-    setBusy("");
-    return !j.error;
+    return put({ kind, rule: { mode, slots, bot } }, `s-${kind}`, "/api/factory/schedule");
   }
 
   async function togglePublish(kind: string, mode: string, at: string) {
@@ -131,7 +116,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   }
 
   async function toggleRoute(f: Format, r: Route) {
-    if (r.state === "locked" || scheduleApi !== "superfit") return;
+    if (r.state === "locked" || !caps?.routes) return;
     setBusy(`r-${f.kind}-${r.ch}`);
     await fetch("/api/factory/routes", {
       method: "PUT", headers: { "content-type": "application/json" },
@@ -142,7 +127,10 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   }
 
   async function togglePause(key: string, paused: boolean) {
-    if (scheduleApi !== "superfit") return;
+    // У СуперФита пауза живёт в матрице маршрутов: завод спрашивает именно её,
+    // и второе хранилище означало бы экран, который врёт. У остальных заводов
+    // матрицы нет — там пауза стоит на самом канале.
+    if (!caps?.routes) return put({ channel: key, paused: !paused }, `ch-${key}`);
     setBusy(`ch-${key}`);
     await fetch("/api/factory/routes", {
       method: "PUT", headers: { "content-type": "application/json" },
@@ -325,29 +313,49 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {channels.map((c: any) => (
             <div key={c.key} className={`border rounded-lg p-3 ${c.paused ? "bg-white border-dashed" : "bg-gray-50"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <b className="text-sm">{c.title}</b>
-                <Switch on={!c.paused} tag={`ch-${c.key}`} label={`Выход в канал ${c.title}`}
-                  onClick={() => togglePause(c.key, c.paused)} />
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <b className="text-sm">{c.title}</b>
+                  <div className="text-sm text-gray-600 truncate">{c.account || "аккаунт не указан"}</div>
+                </div>
+                <span className={`text-[11px] px-2 py-px rounded-full border shrink-0 ${CHIP[c.state]}`}>{c.word}</span>
               </div>
-              <div className="flex items-center gap-2 flex-wrap mt-1 text-sm">
-                <span>{c.account || "аккаунт не указан"}</span>
-                <span className={`text-[11px] px-2 py-px rounded-full border ${CHIP[c.state]}`}>{c.word}</span>
+
+              {/* Два разных вопроса, и подпись у каждого читается как ответ:
+                  выпускаем ли мы сюда вообще — и кто нажимает «опубликовать».
+                  Раньше рядом с выключенным тумблером стояло «аккаунт
+                  подключён», и было непонятно, это состояние или название. */}
+              <div className="mt-2 divide-y border-y">
+                <div className="flex items-center justify-between gap-2 py-1.5">
+                  <div className="text-xs">
+                    <div className="text-gray-800">{c.paused ? "Выход закрыт" : "Выход открыт"}</div>
+                    <div className="text-gray-500">
+                      {c.paused ? "сюда ничего не уходит" : "ролики для этого канала выпускаем"}
+                    </div>
+                  </div>
+                  <Switch on={!c.paused} tag={`ch-${c.key}`} label={`Выход в канал ${c.title}`}
+                    onClick={() => togglePause(c.key, c.paused)} />
+                </div>
+                <div className="flex items-center justify-between gap-2 py-1.5">
+                  <div className="text-xs">
+                    <div className="text-gray-800">
+                      {c.mode === "manual" ? "Аккаунт не подключён" : "Аккаунт подключён"}
+                    </div>
+                    <div className="text-gray-500">
+                      {c.mode === "manual"
+                        ? "ролик приходит в бот, выкладываете вы"
+                        : `выкладывает ${caps?.publisher || "машина"}`}
+                    </div>
+                  </div>
+                  <Switch on={c.mode !== "manual"} tag={`conn-${c.key}`}
+                    label={`Аккаунт подключён: ${c.title}`}
+                    onClick={() => put({ channel: c.key, connected: c.mode === "manual" }, `conn-${c.key}`)} />
+                </div>
               </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {c.state === "auto" ? `аккаунт подключён — выкладывает ${caps?.publisher || "машина"}`
-                  : c.state === "manual" ? "аккаунт не подключён — ролик приходит в бот, выкладываете вы"
-                  : "канал на паузе — сюда ничего не уходит"}
-                {c.note ? ` · ${c.note}` : ""}
-              </div>
+              {c.note && <div className="text-xs text-gray-500 mt-1">{c.note}</div>}
 
               {canManage && (
                 <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <Switch on={c.mode !== "manual"} tag={`conn-${c.key}`} label={`Аккаунт подключён: ${c.title}`}
-                      onClick={() => put({ channel: c.key, connected: c.mode === "manual" }, `conn-${c.key}`)} />
-                    аккаунт подключён
-                  </label>
                   <button className="text-xs text-brand-700" onClick={() => setEditCh(editCh === c.key ? "" : c.key)}>
                     {editCh === c.key ? "свернуть" : "заменить аккаунт"}
                   </button>
@@ -673,11 +681,8 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                           ＋ запуск
                         </button>
                       )}
-                      {!caps?.scheduleDays && (
-                        <p className="text-xs text-gray-500">
-                          Завод СуперФита понимает один запуск в день и целые часы: 07:30 станет 07:00. Несколько
-                          запусков и дни недели появятся, когда он перейдёт на заказы.
-                        </p>
+                      {caps?.scheduleNote && (
+                        <p className="text-xs text-gray-500">{caps.scheduleNote}</p>
                       )}
                       {dirty && canManage && (
                         <div className="flex gap-2 mt-2">

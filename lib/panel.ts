@@ -13,17 +13,17 @@
 import { prisma } from "@/lib/prisma";
 import { brandLabel } from "@/lib/brands";
 import { DEFAULT_BRAND } from "@/lib/factory";
-import { MB_FORMATS, MONEYBALL, mbSchedule } from "@/lib/moneyball";
+import { MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
+import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
 import { msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
 import { archivedOf, channelsOf, STATE_WORD, type ChannelView } from "@/lib/channels";
 import { brandBot, formatOf } from "@/lib/formats";
 import {
-  KINDS, blocked, kindsWithDonors, publishMap, routeMap, scheduleMap, SCHEDULABLE,
+  KINDS, blocked, kindsWithDonors, publishMap, routeMap,
 } from "@/lib/routes";
 
 export const DELIVERY_BOT = "@autopostingdobro_bot";
 const DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
-const ALL = [1, 2, 3, 4, 5, 6, 7];
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 export type PanelSlot = { days: number[]; time: string };
@@ -36,22 +36,7 @@ export type PanelFormat = {
   routes: PanelRoute[]; warn: string; canSchedule: boolean; canProduce: boolean;
 };
 
-function daysLabel(d: number[]) {
-  if (d.length === 7) return "ежедневно";
-  if (d.join() === "1,2,3,4,5") return "пн–пт";
-  return d.map((x) => DAYS[x - 1]).join(", ");
-}
 
-function whenLabel(slots: PanelSlot[]) {
-  const groups = new Map<string, string[]>();
-  [...slots]
-    .sort((a, b) => a.days[0] - b.days[0] || mins(a.time) - mins(b.time))
-    .forEach((s) => {
-      const k = daysLabel(s.days);
-      groups.set(k, [...(groups.get(k) || []), s.time]);
-    });
-  return [...groups].map(([d, t]) => `${d} ${t.join(", ")}`).join(" · ");
-}
 
 function nextRun(slots: PanelSlot[], now: { weekday: number; minutes: number }) {
   for (let add = 0; add < 8; add++) {
@@ -88,7 +73,7 @@ function warnOf(f: { mode: string; bot: boolean; off: boolean; routes: PanelRout
 // ── MoneyBall: расписание и заказы ─────────────────────────────────────────
 async function moneyballPanel(now: ReturnType<typeof msk>) {
   await refresh(MONEYBALL).catch(() => {});
-  const sched = await mbSchedule();
+  const sched = await scheduleOf(MONEYBALL);
   const channels = await channelsOf(MONEYBALL);
   const botOn = await brandBot(MONEYBALL);
 
@@ -101,7 +86,7 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       kind: f.kind, label: f.label,
       note: f.fromPlan ? "тема из плана, без неё завод ищет сам" : "тему находит завод",
       mode: rule.mode as PanelFormat["mode"],
-      slots: rule.slots, when: rule.mode === "time" ? whenLabel(rule.slots) : "по запросу",
+      slots: rule.slots, when: ruleLabel(rule),
       week: slots.reduce((n, s) => n + s.days.length, 0),
       next: rule.mode === "time" ? nextRun(rule.slots, now) : "",
       publish: "сразу",
@@ -121,9 +106,12 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
   }));
   return {
     channels, archived: await archivedOf(MONEYBALL), botOn,
-    groups: [{ title: "По расписанию", formats }], today, scheduleApi: "moneyball",
+    groups: [{ title: "По расписанию", formats }], today,
     caps: {
       publisher: "Постос",
+      // Маршруты форматов по каналам есть только у СуперФита: у MoneyBall
+      // готовое уходит в бот, и матрицы «формат × канал» у него нет.
+      routes: false,
       botToggle: "live",
       // Согласования текста у этого завода нет: ролик собирается сразу.
       approvalToggle: "pending",
@@ -136,7 +124,7 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
 // ── СуперФит: матрица маршрутов и журнал ───────────────────────────────────
 async function superfitPanel(now: ReturnType<typeof msk>) {
   const [sched, flags, publish, kinds, channels] = await Promise.all([
-    scheduleMap(), routeMap(), publishMap(), kindsWithDonors(), channelsOf(DEFAULT_BRAND),
+    scheduleOf(DEFAULT_BRAND), routeMap(), publishMap(), kindsWithDonors(), channelsOf(DEFAULT_BRAND),
   ]);
   const byKey = new Map(channels.map((c) => [c.key, c]));
   const botOn = await brandBot(DEFAULT_BRAND);
@@ -163,12 +151,12 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
           when: "после вашего поста", publish: "сразу", canSchedule: false, canProduce: false,
         }
       : (() => {
-          const s = sched[k.kind] || { mode: "demand" };
-          const slots: PanelSlot[] = s.mode === "time" && s.time ? [{ days: [...ALL], time: s.time }] : [];
+          const rule = sched[k.kind] || { mode: "demand" as const, slots: [], bot: true };
+          const slots: PanelSlot[] = rule.mode === "time" ? rule.slots : [];
           return {
-            ...common, mode: (s.mode === "time" ? "time" : "demand") as PanelFormat["mode"],
-            slots, when: s.mode === "time" ? whenLabel(slots) : "по запросу",
-            week: slots.length ? 7 : 0, next: nextRun(slots, now), publish: "сразу",
+            ...common, bot: rule.bot, mode: rule.mode as PanelFormat["mode"],
+            slots: rule.slots, when: ruleLabel(rule),
+            week: slots.reduce((n, x) => n + x.days.length, 0), next: nextRun(slots, now), publish: "сразу",
             canSchedule: true, canProduce: true,
           };
         })();
@@ -187,7 +175,9 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
   const label = (kind: string) => kinds.find((k) => k.kind === kind)?.label || kind;
 
   const scheduled = [];
-  for (const kind of SCHEDULABLE) scheduled.push(await make({ kind, label: label(kind), note: NOTE[kind] || "" }));
+  for (const f of brandFormats(DEFAULT_BRAND)) {
+    scheduled.push(await make({ kind: f.kind, label: f.label, note: NOTE[f.kind] || "" }));
+  }
   const donors = [];
   for (const k of kinds.filter((x) => x.kind.startsWith("repost:"))) {
     donors.push(await make({ kind: k.kind, label: k.label.replace("Нарезки · ", ""), note: "донор выложил ролик — завод делает нарезку" }));
@@ -218,16 +208,18 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
       ...(donors.length ? [{ title: "Нарезки · по событию", formats: donors }] : []),
       { title: "Без участия завода", formats: rest },
     ],
-    today, scheduleApi: "superfit",
+    today,
     caps: {
       publisher: "завод",
+      routes: true,
       // Эти два тумблера Постос уже хранит, но завод СуперФита пока читает
       // свои настройки. Честно говорим об этом прямо в пульте.
       botToggle: "pending",
-      botNote: "завод пока всегда отдаёт готовое в бот: тумблер начнёт работать после перехода на заказы",
+      botNote: "завод пока всегда отдаёт готовое в бот: тумблер начнёт работать, когда он научится читать это из заказа",
       approvalToggle: "pending",
-      approvalNote: "сейчас согласование задано на заводе: тумблер начнёт работать после перехода на заказы",
-      scheduleDays: false,
+      approvalNote: "сейчас согласование задано на заводе: тумблер начнёт работать, когда он научится читать это из заказа",
+      scheduleDays: true,
+      scheduleNote: "вернёте завод на собственное расписание — он поймёт только первый запуск в день и целый час",
     },
   };
 }
@@ -245,7 +237,7 @@ export async function panelData(brand: string) {
     // только под заказы; у остальных это переключается.
     orders: await ordersEnabled(brand),
     ordersSwitchable: brand !== MONEYBALL && Boolean(body),
-    ...(body || { channels: [], archived: [], botOn: true, groups: [], today: [], scheduleApi: null, caps: null }),
+    ...(body || { channels: [], archived: [], botOn: true, groups: [], today: [], caps: null }),
     known: Boolean(body),
   };
 }
