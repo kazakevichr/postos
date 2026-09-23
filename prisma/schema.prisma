@@ -378,6 +378,43 @@ model FactoryJob {
   updatedAt DateTime @updatedAt
 }
 
+// Заказ заводу: что собрать и когда.
+//
+// Кто начинает работу, решает Постос. Завод раз в полминуты спрашивает, нет
+// ли для него заказа, и только тогда что-то собирает: «контент-завод только
+// производит контент и только тогда, когда Постос говорит ему производить»
+// (решение Романа 22.09.2026).
+//
+// Ключ «бренд + дата + формат + время» делает заказ единственным: сколько бы
+// раз завод ни спросил и сколько бы раз ни перезапустился Постос, дважды за
+// один слот ролик не соберётся. Ролик стоит денег, и это дороже пропуска.
+model FactoryOrder {
+  id         String    @id @default(cuid())
+  brand      String
+  kind       String // news | forecast | make — словарь форматов завода
+  date       String // YYYY-MM-DD по Москве
+  at         String // HH:MM — на какое время назначен
+  // план → выдан → собирается → готов | ошибка | пропущен
+  state      String    @default("план")
+  // Отправлять ли готовое в бот выдачи. Это тумблер формата: выдачу можно
+  // выключить и оставить только площадки.
+  deliverBot Boolean   @default(true)
+  topic      String    @default("")
+  facts      String    @default("")
+  script     String    @default("")
+  file       String    @default("")
+  error      String    @default("")
+  cost       Float     @default(0)
+  seconds    Int       @default(0)
+  takenAt    DateTime?
+  doneAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([brand, date, kind, at])
+  @@index([brand, state])
+}
+
 // Брак, поставленный из Postos постфактум (кнопка в журнале). Отдельная
 // таблица с монотонным id — завод забирает новые пометки курсором
 // GET /api/factory/defects?after=<id>. Брак из бота сюда НЕ пишется

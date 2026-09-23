@@ -32,7 +32,15 @@ export const MB_FORMATS = [
 
 /** Один запуск в неделе: дни (1 — понедельник … 7 — воскресенье) и время старта по Москве. */
 export type MbSlot = { days: number[]; time: string };
-export type MbRule = { mode: "time" | "demand"; slots: MbSlot[] };
+/**
+ * Правило формата: когда собирать и куда отдавать готовое.
+ *
+ * bot — выдача в телеграм-бот. Это такой же тумблер, как площадка: её можно
+ * выключить и оставить только соцсети (решение Романа 23.09.2026). Пока
+ * площадок у MoneyBall нет, выключенная выдача означает, что ролик не увидит
+ * никто, — пульт об этом предупреждает.
+ */
+export type MbRule = { mode: "time" | "demand"; slots: MbSlot[]; bot: boolean };
 
 const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
 
@@ -49,6 +57,7 @@ const DEFAULTS: Record<string, MbRule> = {
       { days: EVERY_DAY, time: "09:00" },
       { days: EVERY_DAY, time: "19:00" },
     ],
+    bot: true,
   },
   forecast: {
     mode: "time",
@@ -56,8 +65,9 @@ const DEFAULTS: Record<string, MbRule> = {
       { days: [6, 7], time: "10:30" },
       { days: [2], time: "13:00" },
     ],
+    bot: true,
   },
-  make: { mode: "time", slots: [{ days: [4], time: "20:00" }] },
+  make: { mode: "time", slots: [{ days: [4], time: "20:00" }], bot: true },
 };
 
 const KEY = "moneyball:schedule";
@@ -78,7 +88,12 @@ export async function mbSchedule(): Promise<Record<string, MbRule>> {
     // Битая запись не должна оставлять завод без расписания.
   }
   const out: Record<string, MbRule> = {};
-  for (const f of MB_FORMATS) out[f.kind] = saved[f.kind] || DEFAULTS[f.kind];
+  for (const f of MB_FORMATS) {
+    const rule = saved[f.kind] || DEFAULTS[f.kind];
+    // Записи, сделанные до появления тумблера выдачи, читаются как «бот
+    // включён»: так было, пока выключить его было нечем.
+    out[f.kind] = { ...rule, bot: rule.bot !== false };
+  }
   return out;
 }
 
@@ -106,7 +121,7 @@ function clean(rule: any): MbRule {
     throw new Error("для режима «по времени» нужен хотя бы один запуск");
   }
   slots.sort((a, b) => a.time.localeCompare(b.time) || a.days[0] - b.days[0]);
-  return { mode: rule.mode, slots };
+  return { mode: rule.mode, slots, bot: rule.bot !== false };
 }
 
 export async function setMbRule(kind: string, rule: unknown) {

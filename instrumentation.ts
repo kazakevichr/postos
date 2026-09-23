@@ -85,6 +85,20 @@ export async function register() {
     }
   };
 
+  // Заказы заводам: заводим их на подошедшие слоты и закрываем просроченные.
+  // Обычно заказ появляется в тот момент, когда завод спрашивает работу, — но
+  // если завод лежит, спросить некому, и пропуск остался бы незамеченным.
+  const orders = async () => {
+    try {
+      await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/factory/orders/tick`, {
+        method: "POST",
+        headers: { "x-factory-key": process.env.IG_HOST_KEY || "" },
+      });
+    } catch (e) {
+      console.error("[заказы] тик упал:", e);
+    }
+  };
+
   // Уведомления считаем ПОСЛЕ сбора: проверяльщики смотрят на свежие цифры,
   // иначе первое уведомление о молчащем заводе опоздает на цикл.
   const notices = async () => {
@@ -102,7 +116,7 @@ export async function register() {
     }
   };
 
-  const tickAll = async () => { await tick(); await remind(); await quota(); await meta(); await notices(); };
+  const tickAll = async () => { await tick(); await remind(); await quota(); await meta(); await orders(); await notices(); };
   setInterval(tickAll, 20 * 60 * 1000);
   setTimeout(tickAll, 60 * 1000); // первый прогон через минуту после старта
 }

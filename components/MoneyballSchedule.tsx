@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 
 type Slot = { days: number[]; time: string };
-type Rule = { mode: "time" | "demand"; slots: Slot[] };
+type Rule = { mode: "time" | "demand"; slots: Slot[]; bot: boolean };
 
 const DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const copy = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -72,7 +72,7 @@ export default function MoneyballSchedule({
         <span className="text-xs text-gray-400">время московское · старт сборки</span>
       </div>
       <p className="text-xs text-gray-400 mt-0.5 mb-2">
-        Завод сверяется с расписанием раз в минуту. Готовый ролик приходит в бот выдачи, когда соберётся.
+        В назначенное время Постос выдаёт заводу заказ. Готовый ролик приходит в бот выдачи, если выдача включена.
       </p>
       {note && <p className="text-sm text-red-600 mb-2">{note}</p>}
 
@@ -86,6 +86,15 @@ export default function MoneyballSchedule({
               <span className={`text-xs ${data.schedule[f.kind].mode === "time" ? "text-gray-600" : "text-gray-400"}`}>
                 {data.labels[f.kind]}
               </span>
+              <span
+                className={`text-[11px] px-2 py-px rounded-full border ${
+                  data.schedule[f.kind].bot
+                    ? "bg-brand-50 text-brand-700 border-brand-600/20"
+                    : "bg-gray-100 text-gray-500 border-gray-200"
+                }`}
+              >
+                бот · {data.schedule[f.kind].bot ? "вкл" : "выкл"}
+              </span>
             </div>
 
             {canManage && (
@@ -98,6 +107,23 @@ export default function MoneyballSchedule({
                   <option value="time">по времени</option>
                   <option value="demand">по запросу</option>
                 </select>
+
+                {/* Выдача в бот — такой же тумблер, как площадка: её можно
+                    выключить и оставить только соцсети. Пока площадок нет,
+                    выключенная выдача означает, что ролик не увидит никто. */}
+                <label className="flex items-center gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={rule.bot}
+                    onChange={(e) => edit(f.kind, (r) => { r.bot = e.target.checked; })}
+                  />
+                  Отдавать готовое в телеграм-бот
+                  {!rule.bot && (
+                    <span className="text-yellow-700">
+                      — площадок у завода нет, ролик будет некуда отдать
+                    </span>
+                  )}
+                </label>
 
                 {rule.slots.map((s, i) => (
                   <div key={i} className={`flex flex-wrap items-center gap-1 ${off ? "opacity-50" : ""}`}>
