@@ -36,6 +36,10 @@ const STATE: Record<string, [string, string]> = {
   "не принят": ["не принят", "bg-yellow-100 text-yellow-800"],
   "брак": ["брак", "bg-red-100 text-red-800"],
 };
+const UPCOMING: Record<string, string> = {
+  "впереди": "bg-white border border-gray-200 text-gray-500",
+  "не выйдет": "bg-yellow-50 text-yellow-800 border border-yellow-200",
+};
 const CHIP: Record<string, string> = {
   auto: "bg-green-100 text-green-800 border-green-200",
   manual: "bg-yellow-50 text-yellow-800 border-yellow-200",
@@ -167,10 +171,15 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     </button>
   );
 
+  // Что ещё впереди сегодня. Формат, которому некуда выйти, честно помечаем
+  // «не выйдет»: заказ на него Постос не заведёт, и обещать запуск нельзя.
   const upcoming = formats.flatMap((f) =>
     f.mode === "time"
       ? f.slots.filter((s) => s.days.includes(now.weekday) && mins(s.time) > now.minutes)
-          .map((s) => ({ at: s.time, kind: f.kind, label: f.label, state: "впереди", topic: "", error: "", seconds: 0 }))
+          .map((s) => ({
+            at: s.time, kind: f.kind, label: f.label,
+            state: f.warn ? "не выйдет" : "впереди", error: f.warn || "", topic: "", seconds: 0,
+          }))
       : []
   );
   const dayRows = [...today, ...upcoming].sort((a: any, b: any) => mins(a.at) - mins(b.at));
@@ -258,7 +267,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
           <div className="divide-y">
             {!dayRows.length && <p className="text-sm text-gray-500">На сегодня запусков нет.</p>}
             {dayRows.map((o: any, i: number) => {
-              const [word, cls] = STATE[o.state] || ["впереди", "bg-white border border-gray-200 text-gray-500"];
+              const [word, cls] = STATE[o.state] || [o.state, UPCOMING[o.state] || UPCOMING["впереди"]];
               return (
                 <div key={`${o.at}-${o.kind}-${i}`} className="py-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
                   <span className="font-semibold tabular-nums w-12">{o.at}</span>
