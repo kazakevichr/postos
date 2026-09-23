@@ -15,7 +15,7 @@ import { brandLabel } from "@/lib/brands";
 import { DEFAULT_BRAND } from "@/lib/factory";
 import { MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
 import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
-import { msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
+import { jobIdOf, msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
 import { archivedOf, channelsOf, STATE_WORD, type ChannelView } from "@/lib/channels";
 import { brandBot, formatOf } from "@/lib/formats";
 import {
@@ -185,7 +185,13 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
   const rest = [];
   for (const k of KINDS.filter((x) => x.kind === "manual")) rest.push(await make({ kind: k.kind, label: k.label, note: NOTE[k.kind] || "" }));
 
-  // Журнал за сегодня: у СуперФита заказов пока нет, и «что было» знает он.
+  await refresh(DEFAULT_BRAND).catch(() => {});
+  const orders = await ordersOf(DEFAULT_BRAND, now.date);
+  // Вчерашние заказы в ленту не идут, но их записи в журнале — да: лента
+  // показывает и поздний вечер. Нужны, чтобы отсеять и их «никто не забрал».
+  const yesterday = await ordersOf(DEFAULT_BRAND, msk(new Date(Date.now() - 864e5)).date);
+
+  // Журнал за сегодня: чем завод отчитался сам.
   const since = new Date(Date.parse(`${now.date}T00:00:00.000Z`) - 3 * 3600 * 1000);
   const jobs = await prisma.factoryJob.findMany({
     where: { brand: DEFAULT_BRAND, at: { gte: since } },
@@ -195,11 +201,38 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
     "создан": "собирается", "готов": "готов", "опубликован": "опубликован",
     "не принят": "не принят", "брак": "брак", "ошибка": "ошибка",
   };
-  const today = jobs.map((j) => ({
+  const fromJob = (j: (typeof jobs)[number]) => ({
     at: msk(j.at).time, kind: j.kind || j.slot, label: label(j.kind || j.slot),
     state: EVENT[j.event] || j.event || "в работе",
     topic: j.topic, error: j.error, seconds: j.seconds,
-  }));
+  });
+
+  // Лента дня: заказы Постоса плюс то, что завод сделал без заказа (нарезки по
+  // событию, ручной запуск). Пока лента читала только журнал, пропущенный слот
+  // был не виден: заказ есть, а на экране «на сегодня запусков нет».
+  //
+  // Строку журнала, которую написал сам заказ (например «никто не забрал»),
+  // отдельно не показываем: это та же беда, о которой говорит заказ.
+  const ownIds = new Set([...orders, ...yesterday].map((o) => jobIdOf(o)));
+  const free = jobs.filter((j) => !ownIds.has(j.jobId));
+  const taken = new Set<number>();
+  const today = orders.map((o) => {
+    // Сборку завода связываем с заказом по типу за день, а не по номеру: у
+    // СуперФита номер свой, и заказ Постоса сведён с ним на стороне завода.
+    const i = o.state === "пропущен"
+      ? -1
+      : free.findIndex((j, x) => !taken.has(x) && (j.kind || j.slot) === o.kind);
+    if (i < 0) {
+      return {
+        at: o.at, kind: o.kind, label: label(o.kind),
+        state: o.state, topic: o.topic, error: o.error, seconds: o.seconds,
+      };
+    }
+    taken.add(i);
+    return { ...fromJob(free[i]), at: o.at };
+  });
+  free.forEach((j, x) => { if (!taken.has(x)) today.push(fromJob(j)); });
+  today.sort((a, b) => a.at.localeCompare(b.at));
 
   return {
     channels, archived: await archivedOf(DEFAULT_BRAND), botOn,
