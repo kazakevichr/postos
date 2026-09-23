@@ -3,9 +3,8 @@
 // Контент-завод: план тем (месячная сетка, редактируется на месте, генерация
 // тем LLM) и статистика производства из журнала событий завода.
 import { useEffect, useMemo, useState } from "react";
-import RouteMatrix from "@/components/RouteMatrix";
 import QuotaBoard from "@/components/QuotaBoard";
-import MoneyballPanel from "@/components/MoneyballPanel";
+import FactoryPanel from "@/components/FactoryPanel";
 
 const fmt = (n: any) => (n == null ? "—" : Number(n).toLocaleString("ru-RU"));
 
@@ -65,8 +64,6 @@ export default function FactoryDashboard({
   // СуперФита — площадки, гайды, рационы; у второго завода свои площадки и
   // свои темы, и показывать ему чужие настройки нечестно.
   const isDefaultFactory = !plan || plan.brand === "superfit";
-  // У MoneyBall площадок нет, зато есть своё расписание по дням недели.
-  const isMoneyball = plan?.brand === "moneyball";
 
   async function loadPlan(m: string) {
     const r = await fetch(`/api/factory/plan-admin?month=${m}`);
@@ -188,11 +185,10 @@ export default function FactoryDashboard({
       </div>
       {note && <p className="text-sm text-gray-500">{note}</p>}
 
-      {/* Матрица маршрутов — настройка владельца: в режиме просмотра её не
-          показываем и не спрашиваем, иначе раздел встречает партнёра пустым
-          местом и 403 в консоли. */}
-      {tab === "plan" && canManage && isDefaultFactory && <RouteMatrix canManage={canManage} />}
-      {tab === "plan" && isMoneyball && <MoneyballPanel canManage={canManage} />}
+      {/* Пульт завода: день, неделя, каналы и форматы. Привычная матрица
+          осталась внутри него, под переключателем «Таблица», — она нужна,
+          когда надо разом пройтись по всем клеткам. */}
+      {tab === "plan" && <FactoryPanel canManage={canManage} />}
 
       {tab === "plan" && plan && (
         <div className="card overflow-x-auto">

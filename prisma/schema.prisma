@@ -378,6 +378,33 @@ model FactoryJob {
   updatedAt DateTime @updatedAt
 }
 
+// Канал — место публикации бренда: «Instagram · основной», YouTube, TikTok.
+//
+// Аккаунт привязан к каналу и может смениться: заблокировали — привязываете
+// новый, а маршруты, расписание и история остаются на канале. Раньше маршрут
+// вёл прямо на аккаунт, и замена аккаунта означала перенастройку всего.
+//
+// mode — КТО выкладывает: factory (завод сам, как сейчас у СуперФита),
+// postos (выкладывает Постос) или manual (аккаунт не подключён: ролик
+// приходит в бот, выкладывает человек). Пауза канала гасит выход целиком.
+// У СуперФита пауза живёт в матрице маршрутов (RouteFlag `площадка|*`), и
+// второго хранилища ей не заводим: две правды разъезжаются на третий день.
+model Channel {
+  id        String   @id @default(cuid())
+  brand     String
+  key       String // ig_main | ig_woman | ig_man | youtube | tiktok | …
+  title     String
+  net       String // IG | YT | TT
+  account   String   @default("")
+  mode      String   @default("manual")
+  paused    Boolean  @default(false)
+  note      String   @default("")
+  archived  Boolean  @default(false)
+  at        DateTime @updatedAt
+
+  @@unique([brand, key])
+}
+
 // Заказ заводу: что собрать и когда.
 //
 // Кто начинает работу, решает Постос. Завод раз в полминуты спрашивает, нет
