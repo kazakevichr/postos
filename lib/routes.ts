@@ -158,9 +158,26 @@ export async function routeMap() {
   return flags;
 }
 
+/**
+ * Выключенный донор нарезок: тумблер в пульте гасит и производство.
+ *
+ * Читаем настройку напрямую, а не через lib/formats: тот тянет за собой
+ * lib/factory, а он — этот файл, и получился бы круг импортов.
+ */
+async function donorOff(kind: string) {
+  if (!kind.startsWith("repost:")) return false;
+  const row = await _p.setting.findUnique({ where: { key: "factory:formats:superfit" } });
+  try {
+    return Boolean(row && JSON.parse(row.value)?.[kind]?.off);
+  } catch {
+    return false;
+  }
+}
+
 // Итоговое решение для публикатора: тип разрешён и площадка не на паузе.
 export async function allowed(platform: string, kind: string) {
   if (blocked(platform, kind)) return false;
+  if (await donorOff(kind)) return false;
   const flags = await routeMap();
   const key = `${platform}|${kind}`;
   if (!(key in flags) && kind === "repost") {

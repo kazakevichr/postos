@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { socialScope } from "@/lib/access";
 import { factoryBrand } from "@/lib/factory";
 import { panelData } from "@/lib/panel";
-import { saveChannel } from "@/lib/channels";
+import { createChannel, saveChannel } from "@/lib/channels";
+import { setBrandBot, setFormat } from "@/lib/formats";
 import { setOrders } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +18,8 @@ export async function GET() {
   return NextResponse.json(await panelData(factoryBrand(scope)));
 }
 
-// Правка канала: аккаунт, кто выкладывает, заметка. Только владелец —
-// это настройка публикации, а не просмотр.
+// Правка из пульта: канал, формат, выдача или то, кто решает, когда
+// производить. Только владелец — это настройки производства и публикации.
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "OWNER") {
@@ -33,8 +34,19 @@ export async function PUT(req: Request) {
     // делается в два действия — тумблер здесь и ORDERS=1 в .env завода, —
     // чтобы вернуться назад можно было одним щелчком.
     if (typeof b?.orders === "boolean") await setOrders(brand, b.orders);
+    else if (typeof b?.brandBot === "boolean") await setBrandBot(brand, b.brandBot);
+    else if (b?.newChannel) await createChannel(brand, b.newChannel);
     else if (b?.channel) {
-      await saveChannel(brand, String(b.channel), { account: b.account, mode: b.mode, note: b.note });
+      await saveChannel(brand, String(b.channel), {
+        account: b.account, connected: b.connected, archived: b.archived,
+      });
+    } else if (b?.format) {
+      const patch: Record<string, boolean> = {};
+      for (const f of ["bot", "approval", "off"]) {
+        if (typeof b[f] === "boolean") patch[f] = b[f];
+      }
+      if (!Object.keys(patch).length) return NextResponse.json({ error: "нечего менять в формате" }, { status: 400 });
+      await setFormat(brand, String(b.format), patch);
     } else {
       return NextResponse.json({ error: "нечего менять" }, { status: 400 });
     }
