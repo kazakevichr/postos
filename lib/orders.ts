@@ -30,12 +30,24 @@ const STALE_MIN = 120;
 /** Заводы, которым Постос выдаёт заказы. Остальные пока работают по-старому. */
 export const ORDER_BRANDS = [MONEYBALL];
 
-type Moment = { date: string; weekday: number };
+type Moment = { date: string; weekday: number; time: string; minutes: number };
 
-/** Московские сутки и день недели (1 — понедельник). */
-function msk(when: Date): Moment {
+/**
+ * Московские сутки, день недели (1 — понедельник) и время.
+ *
+ * Считаем сами, а не через локаль сервера: контейнер живёт по UTC, а
+ * расписание заводов — по Москве, и «сегодня» у них разное.
+ */
+export function msk(when: Date = new Date()): Moment {
   const d = new Date(when.getTime() + MSK_MS);
-  return { date: d.toISOString().slice(0, 10), weekday: d.getUTCDay() === 0 ? 7 : d.getUTCDay() };
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return {
+    date: d.toISOString().slice(0, 10),
+    weekday: d.getUTCDay() === 0 ? 7 : d.getUTCDay(),
+    time: `${hh}:${mm}`,
+    minutes: d.getUTCHours() * 60 + d.getUTCMinutes(),
+  };
 }
 
 /** Момент слота в обычном времени: дата и ЧЧ:ММ заданы по Москве. */

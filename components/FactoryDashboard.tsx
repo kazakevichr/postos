@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import RouteMatrix from "@/components/RouteMatrix";
 import QuotaBoard from "@/components/QuotaBoard";
-import MoneyballSchedule from "@/components/MoneyballSchedule";
+import MoneyballPanel from "@/components/MoneyballPanel";
 
 const fmt = (n: any) => (n == null ? "—" : Number(n).toLocaleString("ru-RU"));
 
@@ -192,9 +192,7 @@ export default function FactoryDashboard({
           показываем и не спрашиваем, иначе раздел встречает партнёра пустым
           местом и 403 в консоли. */}
       {tab === "plan" && canManage && isDefaultFactory && <RouteMatrix canManage={canManage} />}
-      {tab === "plan" && isMoneyball && (
-        <MoneyballSchedule canManage={canManage} onSaved={() => loadPlan(month)} />
-      )}
+      {tab === "plan" && isMoneyball && <MoneyballPanel canManage={canManage} />}
 
       {tab === "plan" && plan && (
         <div className="card overflow-x-auto">
