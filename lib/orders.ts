@@ -498,7 +498,33 @@ export async function picksOf(brand: string) {
 /** Умеет ли завод согласование — видно по тому, присылал ли он текст. */
 export async function approvalWorks(brand: string) {
   const row = await prisma.setting.findUnique({ where: { key: `factory:approval:${brand}` } });
-  return row?.value === "умеет";
+  if (row?.value === "умеет") return true;
+  return (await factoryCan(brand)).includes("approval");
+}
+
+/**
+ * Что завод умеет исполнять из заказа — он сам говорит это заголовком
+ * X-Factory-Can, когда приходит за работой.
+ *
+ * Нужно, чтобы пульт не обещал настройку, которой завод не слушается. Гадать
+ * по версии кода нельзя: на сервере может стоять что угодно, и молчаливое
+ * расхождение — это ровно та бутафория, от которой мы уходим.
+ */
+export async function factoryCan(brand: string): Promise<string[]> {
+  const row = await prisma.setting.findUnique({ where: { key: `factory:can:${brand}` } });
+  return (row?.value || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+export async function rememberCan(brand: string, header: string | null) {
+  const value = (header || "").split(",").map((x) => x.trim()).filter(Boolean).sort().join(",");
+  if (!value) return;
+  const row = await prisma.setting.findUnique({ where: { key: `factory:can:${brand}` } });
+  if (row?.value === value) return;
+  await prisma.setting.upsert({
+    where: { key: `factory:can:${brand}` },
+    create: { key: `factory:can:${brand}`, value },
+    update: { value },
+  });
 }
 
 export async function ordersOf(brand: string, date?: string) {

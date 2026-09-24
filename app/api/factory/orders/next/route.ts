@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { factoryAuth } from "@/lib/factory";
-import { claim } from "@/lib/orders";
+import { claim, rememberCan } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const brand = factoryAuth(req);
   if (!brand) return new NextResponse("forbidden", { status: 403 });
+
+  // Завод представляется тем, что умеет: по этому пульт решает, живые у него
+  // тумблеры или запертые.
+  await rememberCan(brand, req.headers.get("x-factory-can")).catch(() => {});
 
   const order = await claim(brand);
   if (!order) return NextResponse.json({});

@@ -15,7 +15,7 @@ import { brandLabel } from "@/lib/brands";
 import { DEFAULT_BRAND } from "@/lib/factory";
 import { MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
 import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
-import { approvalWorks, jobIdOf, msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
+import { approvalWorks, factoryCan, jobIdOf, msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
 import { archivedOf, channelsOf, STATE_WORD, type ChannelView } from "@/lib/channels";
 import { brandBot, formatOf } from "@/lib/formats";
 import {
@@ -240,6 +240,9 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
   free.forEach((j, x) => { if (!taken.has(x)) today.push(fromJob(j)); });
   today.sort((a, b) => a.at.localeCompare(b.at));
 
+  // Завод говорит о себе сам, когда приходит за заказом. Пока не сказал —
+  // тумблеры заперты: обещать настройку, которой он не слушается, нельзя.
+  const can = await factoryCan(DEFAULT_BRAND);
   return {
     channels, archived: await archivedOf(DEFAULT_BRAND), botOn,
     groups: [
@@ -251,12 +254,10 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
     caps: {
       publisher: "завод",
       routes: true,
-      // Эти два тумблера Постос уже хранит, но завод СуперФита пока читает
-      // свои настройки. Честно говорим об этом прямо в пульте.
-      botToggle: "pending",
-      botNote: "завод пока всегда отдаёт готовое в бот: тумблер начнёт работать, когда он научится читать это из заказа",
-      approvalToggle: "pending",
-      approvalNote: "сейчас согласование задано на заводе: тумблер начнёт работать, когда он научится читать это из заказа",
+      botToggle: can.includes("deliver") ? "live" : "pending",
+      botNote: "завод пока всегда отдаёт готовое в бот: тумблер оживёт, когда на сервере обновится завод",
+      approvalToggle: can.includes("approval") ? "live" : "pending",
+      approvalNote: "согласование пока задано на самом заводе: тумблер оживёт, когда на сервере обновится завод",
       scheduleDays: true,
       scheduleNote: "пока заказами управляет Постос, расписание работает целиком. Вернёте завод на собственное — он поймёт только первый запуск в день, целый час и без выбора дней",
     },
