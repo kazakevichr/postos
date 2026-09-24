@@ -233,6 +233,47 @@ export async function refresh(brand: string, now = new Date()) {
 }
 
 /**
+ * Разовый заказ «произвести сейчас».
+ *
+ * Расписание отвечает за то, что выходит всегда, но бывает повод на один раз:
+ * сегодня хорошие матчи, и Роман хочет разбор, хотя Прогнозы стоят на вторник
+ * и выходные (24.09.2026). Раньше на это не было ответа вовсе — завод слушает
+ * только заказы, а заказы заводило одно расписание.
+ *
+ * Заказ выглядит как обычный: тем же путём уедет заводу, так же отчитается и
+ * так же встанет в ленту дня. Отличает его только время — текущая минута.
+ */
+export async function orderNow(brand: string, kind: string) {
+  if (!(await ordersEnabled(brand))) throw new Error("завод пока производит по своему расписанию, а не по заказам");
+  const fmt = brandFormats(brand).find((f) => f.kind === kind);
+  if (!fmt) throw new Error("у этого завода нет такого формата");
+
+  const bot = (await brandBot(brand)) && (await formatOf(brand, kind)).bot;
+  const routes = brand === MONEYBALL ? {} : await routeMap();
+  const open = Object.keys(routes).some((k) => {
+    const [platform, kk] = k.split("|");
+    return kk === kind && routes[k] && routes[`${platform}|*`] !== false && !blocked(platform, kind);
+  });
+  if (!bot && !open) throw new Error("отдавать готовое некуда: выключены и бот, и все каналы");
+
+  // Минута занята прошлым заказом — берём следующую: ключ заказа это дата,
+  // формат и время, а спорить с ним из-за одной минуты незачем.
+  const now = msk();
+  let at = now.time;
+  for (let i = 0; i < 10; i++) {
+    const busy = await prisma.factoryOrder.findUnique({
+      where: { brand_date_kind_at: { brand, date: now.date, kind, at } },
+    });
+    if (!busy) break;
+    const m = (Number(at.slice(0, 2)) * 60 + Number(at.slice(3, 5)) + 1) % 1440;
+    at = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  }
+  return prisma.factoryOrder.create({
+    data: { brand, kind, date: now.date, at, deliverBot: bot },
+  });
+}
+
+/**
  * Выдать заводу очередной заказ. null — работы нет.
  *
  * Один заказ за раз: пока предыдущий не закрыт, новый не выдаём. Две сборки

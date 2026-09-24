@@ -6,7 +6,7 @@ import { factoryBrand } from "@/lib/factory";
 import { panelData } from "@/lib/panel";
 import { createChannel, saveChannel } from "@/lib/channels";
 import { setBrandBot, setFormat } from "@/lib/formats";
-import { setOrders } from "@/lib/orders";
+import { orderNow, setOrders } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,8 @@ export async function PUT(req: Request) {
     // делается в два действия — тумблер здесь и ORDERS=1 в .env завода, —
     // чтобы вернуться назад можно было одним щелчком.
     if (typeof b?.orders === "boolean") await setOrders(brand, b.orders);
+    // Разовая сборка: заказ на текущую минуту, вне расписания.
+    else if (b?.now) await orderNow(brand, String(b.now));
     else if (typeof b?.brandBot === "boolean") await setBrandBot(brand, b.brandBot);
     else if (b?.newChannel) await createChannel(brand, b.newChannel);
     else if (b?.channel) {

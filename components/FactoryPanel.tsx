@@ -684,6 +684,18 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                       {caps?.scheduleNote && (
                         <p className="text-xs text-gray-500">{caps.scheduleNote}</p>
                       )}
+                      {canManage && (
+                        <div className="mt-3 pt-3 border-t">
+                          <button className="btn btn-secondary text-xs" disabled={busy === `n-${f.kind}`}
+                            onClick={() => put({ now: f.kind }, `n-${f.kind}`)}>
+                            {busy === `n-${f.kind}` ? "Заказываю…" : "Произвести сейчас"}
+                          </button>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Разовый заказ вне расписания: завод заберёт его в ближайшие полминуты, расписание
+                            не меняется.
+                          </p>
+                        </div>
+                      )}
                       {dirty && canManage && (
                         <div className="flex gap-2 mt-2">
                           <button className="btn btn-primary text-xs" disabled={busy === `s-${f.kind}`}
