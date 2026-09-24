@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { decide } from "@/lib/orders";
 import { approveSignup, askOwner, rejectSignup, sendTo, tgCall, ownerWithTg, webhookSecret, ROLE_NAME } from "@/lib/telegram";
 import { extractTask, looksLikeTask, resolveAssignee } from "@/lib/tgtasks";
 import { collabAdd, collabRemove, kratParts } from "@/lib/quota";
@@ -183,6 +184,26 @@ async function onCallback(q: any) {
   const data = String(q.data || "");
   const answer = (text: string) => tgCall("answerCallbackQuery", { callback_query_id: q.id, text });
   const [action, signupId, role] = data.split(":");
+
+  // Согласование текста ролика: «да» пускает заказ в сборку, «нет» закрывает
+  // его отклонённым. Жмёт только владелец — это его деньги.
+  if (action === "ok" || action === "no") {
+    const presser = await prisma.user.findFirst({ where: { tgChatId: String(q.from?.id || "") } });
+    if (presser?.role !== "OWNER") { await answer("Решает владелец."); return; }
+    try {
+      const order = await decide(signupId, action === "ok");
+      await answer(action === "ok" ? "Собираем" : "Отклонил");
+      await tgCall("editMessageText", {
+        chat_id: chatId, message_id: q.message.message_id,
+        text: action === "ok"
+          ? `✅ Собираем. Готовый ролик придёт сюда же.\n\n${order.script.slice(0, 2000)}`
+          : `🚫 Текст не принят, ролик не собирается.\n\n${order.script.slice(0, 2000)}`,
+      });
+    } catch (e: any) {
+      await answer(e.message || "не вышло");
+    }
+    return;
+  }
 
   if (action === "qx") {
     const presser = await prisma.user.findFirst({ where: { tgChatId: String(q.from?.id || "") } });

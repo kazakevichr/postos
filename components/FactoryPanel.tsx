@@ -29,6 +29,8 @@ const STATE: Record<string, [string, string]> = {
   "план": ["ждёт завода", "bg-gray-100 text-gray-600"],
   "выдан": ["взят в работу", "bg-brand-50 text-brand-700"],
   "собирается": ["собирается", "bg-brand-50 text-brand-700"],
+  "на согласовании": ["ждёт вашего «да»", "bg-yellow-100 text-yellow-800"],
+  "отклонён": ["текст не принят", "bg-gray-100 text-gray-600"],
   "готов": ["готов, в боте", "bg-green-100 text-green-800"],
   "опубликован": ["опубликован", "bg-green-100 text-green-800"],
   "ошибка": ["ошибка", "bg-red-100 text-red-800"],
@@ -58,6 +60,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   const [editCh, setEditCh] = useState("");
   const [addCh, setAddCh] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
+  const [openScript, setOpenScript] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
 
@@ -264,6 +267,34 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                   {o.topic && <span className="text-gray-600 truncate max-w-md">{o.topic}</span>}
                   {o.seconds > 0 && <span className="text-xs text-gray-400">{Math.round(o.seconds / 60)} мин</span>}
                   {o.error && <span className="text-xs text-red-600 truncate max-w-md">{o.error}</span>}
+                  {o.state === "на согласовании" && (
+                    <div className="basis-full mt-1">
+                      <button className="text-xs text-brand-700"
+                        onClick={() => setOpenScript(openScript === o.id ? "" : o.id)}>
+                        {openScript === o.id ? "свернуть текст" : "прочитать текст"}
+                      </button>
+                      {openScript === o.id && (
+                        <pre className="mt-1 whitespace-pre-wrap text-xs bg-gray-50 border rounded-lg p-2 max-h-72 overflow-y-auto">
+                          {o.script || "текст не пришёл"}
+                        </pre>
+                      )}
+                      {canManage && (
+                        <div className="flex gap-2 mt-2">
+                          <button className="btn btn-primary text-xs" disabled={busy === `d-${o.id}`}
+                            onClick={() => put({ decide: o.id, ok: true }, `d-${o.id}`)}>
+                            Собрать
+                          </button>
+                          <button className="btn btn-secondary text-xs" disabled={busy === `d-${o.id}`}
+                            onClick={() => put({ decide: o.id, ok: false }, `d-${o.id}`)}>
+                            Отклонить
+                          </button>
+                          <span className="text-xs text-gray-500 self-center">
+                            то же самое можно ответить кнопками в телеграме
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

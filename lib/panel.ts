@@ -15,7 +15,7 @@ import { brandLabel } from "@/lib/brands";
 import { DEFAULT_BRAND } from "@/lib/factory";
 import { MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
 import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
-import { jobIdOf, msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
+import { approvalWorks, jobIdOf, msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
 import { archivedOf, channelsOf, STATE_WORD, type ChannelView } from "@/lib/channels";
 import { brandBot, formatOf } from "@/lib/formats";
 import {
@@ -103,6 +103,9 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
     at: o.at, kind: o.kind,
     label: MB_FORMATS.find((f) => f.kind === o.kind)?.label || o.kind,
     state: o.state, topic: o.topic, error: o.error, seconds: o.seconds,
+    // Текст и номер нужны только тому заказу, который ждёт ответа: по ним
+    // пульт покажет сценарий и кнопки «Собрать» / «Отклонить».
+    id: o.id, script: o.state === "на согласовании" ? o.script : "",
   }));
   return {
     channels, archived: await archivedOf(MONEYBALL), botOn,
@@ -113,9 +116,11 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       // готовое уходит в бот, и матрицы «формат × канал» у него нет.
       routes: false,
       botToggle: "live",
-      // Согласования текста у этого завода нет: ролик собирается сразу.
-      approvalToggle: "pending",
-      approvalNote: "завод MoneyBall пока не умеет согласование: ролик собирается сразу",
+      // Согласование включается тумблером здесь, но спрашивает завод: он
+      // присылает текст и ждёт ответа. Пока он ни разу не прислал, честнее
+      // предупредить, что ролик соберётся сразу.
+      approvalToggle: (await approvalWorks(MONEYBALL)) ? "live" : "pending",
+      approvalNote: "завод ещё ни разу не присылал текст на согласование — пока на сервере старая сборка, ролик соберётся сразу",
       scheduleDays: true,
     },
   };
@@ -226,6 +231,7 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
       return {
         at: o.at, kind: o.kind, label: label(o.kind),
         state: o.state, topic: o.topic, error: o.error, seconds: o.seconds,
+        id: o.id, script: o.state === "на согласовании" ? o.script : "",
       };
     }
     taken.add(i);

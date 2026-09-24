@@ -19,6 +19,7 @@ import { DEFAULT_BRAND, DELIVERY_ONLY } from "@/lib/factory";
 import { MONEYBALL } from "@/lib/moneyball";
 import { brandBot, formatOf } from "@/lib/formats";
 import { brandFormats, scheduleOf } from "@/lib/schedule";
+import { ownerWithTg, sendTo } from "@/lib/telegram";
 import { blocked, routeMap } from "@/lib/routes";
 
 /** Расписание заводов живёт в московском времени — один сдвиг на всё. */
@@ -47,6 +48,11 @@ const staleOf = (brand: string) => STALE_MIN[brand] ?? 120;
  * ИИ-аватара, у которого свой час.
  */
 const SINGLE = new Set([MONEYBALL]);
+
+// Сколько ждём ответа на согласование. Без срока заказ, о котором забыли,
+// висел бы вечно — а у завода, который делает по одному ролику за раз, он
+// заодно держал бы и всю очередь.
+const WAIT_MIN = 6 * 60;
 
 /**
  * Заводы, которым Постос выдаёт заказы.
@@ -111,7 +117,7 @@ export function jobIdOf(o: { date: string; kind: string; at: string }) {
   return `${o.date}_${o.kind}_${o.at.replace(":", "")}`;
 }
 
-type Slot = { kind: string; date: string; at: string; late: number; bot: boolean };
+type Slot = { kind: string; date: string; at: string; late: number; bot: boolean; approval: boolean };
 
 /**
  * Слоты, чьё время уже настало — сегодня и вчера.
@@ -130,7 +136,7 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
   // по Москве.
   const sched = await scheduleOf(brand);
   const botOn = await brandBot(brand);
-  const rules: { kind: string; days: number[]; time: string; bot: boolean }[] = [];
+  const rules: { kind: string; days: number[]; time: string; bot: boolean; approval: boolean }[] = [];
 
   // Куда уйдёт готовое. Завод не начинает производство, когда отдавать некуда
   // (правило Романа 26.08: выключено в пульте — токены не тратим), но «некуда»
@@ -150,7 +156,7 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
     const set = await formatOf(brand, f.kind);
     const bot = botOn && set.bot;
     if (!bot && !openRoute(f.kind)) continue;
-    for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot });
+    for (const s of rule.slots) rules.push({ kind: f.kind, days: s.days, time: s.time, bot, approval: set.approval });
   }
 
   const out: Slot[] = [];
@@ -160,7 +166,7 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
       if (!r.days.includes(day.weekday)) continue;
       const late = (now.getTime() - slotAt(day.date, r.time)) / 60000;
       if (late < 0) continue;
-      out.push({ kind: r.kind, date: day.date, at: r.time, late, bot: r.bot });
+      out.push({ kind: r.kind, date: day.date, at: r.time, late, bot: r.bot, approval: r.approval });
     }
   }
   return out.sort((a, b) => b.late - a.late); // самый старый — первым
@@ -206,7 +212,7 @@ export async function refresh(brand: string, now = new Date()) {
     const known = await prisma.factoryOrder.findUnique({ where: key });
     if (!known) {
       await prisma.factoryOrder.create({
-        data: { brand, kind: s.kind, date: s.date, at: s.at, deliverBot: s.bot },
+        data: { brand, kind: s.kind, date: s.date, at: s.at, deliverBot: s.bot, approval: s.approval },
       });
     } else if (known.state === "план" && known.deliverBot !== s.bot) {
       // Тумблер выдачи переключили уже после появления заказа.
@@ -222,6 +228,18 @@ export async function refresh(brand: string, now = new Date()) {
     await toJournal(o, "ошибка", `Заказ на ${o.at} никто не забрал за ${GRACE_MIN / 60} часа — завод не выходил на связь`);
   }
 
+  // Текст, который остался без ответа. Закрываем пропуском, а не отказом:
+  // отказ — это решение человека, а здесь решения не было.
+  const unanswered = await prisma.factoryOrder.findMany({ where: { brand, state: "на согласовании" } });
+  for (const o of unanswered) {
+    if (!o.takenAt || (now.getTime() - +o.takenAt) / 60000 <= WAIT_MIN) continue;
+    const gone = await prisma.factoryOrder.update({
+      where: { id: o.id },
+      data: { state: "пропущен", doneAt: now, error: `текст ждал ответа ${WAIT_MIN / 60} часов и остался без «да»` },
+    });
+    await toJournal(gone, "не принят", gone.error);
+  }
+
   // Взятый, но недоведённый заказ. Заново не запускаем: ролик мог успеть
   // собраться и уйти в бот, а вторая сборка — это вторые деньги.
   const lost = await prisma.factoryOrder.findMany({ where: { brand, state: { in: ["выдан", "собирается"] } } });
@@ -230,6 +248,47 @@ export async function refresh(brand: string, now = new Date()) {
     await prisma.factoryOrder.update({ where: { id: o.id }, data: { state: "ошибка", doneAt: now, error: "завод пропал во время сборки" } });
     await toJournal(o, "ошибка", "Завод взял заказ и пропал. Сборку заново не начинаем: проверьте бот выдачи, ролик мог дойти");
   }
+}
+
+/**
+ * Позвать человека прочитать текст.
+ *
+ * Зовём в телеграм, а не только в пульт: согласование имеет смысл, пока ролик
+ * ещё не опоздал, а в пульт заходят не каждый час. Молчание телеграма не
+ * ломает заказ — он так и будет ждать ответа в пульте.
+ */
+async function askApproval(order: { id: string; brand: string; kind: string; at: string; script: string }) {
+  const owner = await ownerWithTg();
+  if (!owner?.tgChatId) return;
+  const label = brandFormats(order.brand).find((f) => f.kind === order.kind)?.label || order.kind;
+  const text = order.script.length > 3000 ? `${order.script.slice(0, 3000)}…` : order.script;
+  await sendTo(
+    owner.tgChatId,
+    `<b>${label} · ${order.at}</b>\nТекст готов. Без «да» ролик не собирается и деньги не тратятся.\n\n${text}`,
+    [[
+      { text: "✅ Собрать", callback_data: `ok:${order.id}` },
+      { text: "🚫 Отклонить", callback_data: `no:${order.id}` },
+    ]],
+  );
+}
+
+/**
+ * Ответ человека на согласование: собираем или нет.
+ *
+ * «Нет» — это не ошибка завода, а решение: заказ закрывается отклонённым и в
+ * журнал уходит «не принят», тем же словом, каким это зовётся у СуперФита.
+ */
+export async function decide(id: string, ok: boolean) {
+  const order = await prisma.factoryOrder.findUnique({ where: { id } });
+  if (!order) throw new Error("заказ не найден");
+  if (order.state !== "на согласовании") throw new Error(`заказ уже не ждёт ответа: ${order.state}`);
+  if (ok) return prisma.factoryOrder.update({ where: { id }, data: { state: "собирается" } });
+  const no = await prisma.factoryOrder.update({
+    where: { id },
+    data: { state: "отклонён", doneAt: new Date(), error: "текст не принят" },
+  });
+  await toJournal(no, "не принят", "текст не принят");
+  return no;
 }
 
 /**
@@ -248,7 +307,8 @@ export async function orderNow(brand: string, kind: string) {
   const fmt = brandFormats(brand).find((f) => f.kind === kind);
   if (!fmt) throw new Error("у этого завода нет такого формата");
 
-  const bot = (await brandBot(brand)) && (await formatOf(brand, kind)).bot;
+  const set = await formatOf(brand, kind);
+  const bot = (await brandBot(brand)) && set.bot;
   const routes = brand === MONEYBALL ? {} : await routeMap();
   const open = Object.keys(routes).some((k) => {
     const [platform, kk] = k.split("|");
@@ -269,7 +329,7 @@ export async function orderNow(brand: string, kind: string) {
     at = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   }
   return prisma.factoryOrder.create({
-    data: { brand, kind, date: now.date, at, deliverBot: bot },
+    data: { brand, kind, date: now.date, at, deliverBot: bot, approval: set.approval },
   });
 }
 
@@ -286,7 +346,9 @@ export async function claim(brand: string, now = new Date()) {
   await refresh(brand, now);
 
   if (SINGLE.has(brand)) {
-    const busy = await prisma.factoryOrder.findFirst({ where: { brand, state: { in: ["выдан", "собирается"] } } });
+    const busy = await prisma.factoryOrder.findFirst({
+      where: { brand, state: { in: ["выдан", "на согласовании", "собирается"] } },
+    });
     if (busy) return null;
   }
 
@@ -324,6 +386,30 @@ export async function report(brand: string, id: string, body: any) {
     return prisma.factoryOrder.update({ where: { id }, data: { state: "собирается" } });
   }
 
+  // Текст готов, а сборка ещё не начиналась: завод спрашивает «да».
+  // Присылать его без спроса можно — Постос просто запомнит текст и пойдёт
+  // дальше: решает тумблер согласования, а не завод.
+  if (event === "script") {
+    const script = String(body.script || "").slice(0, 3000);
+    // Завод прислал текст — значит, он умеет согласование. Пульт перестаёт
+    // предупреждать «ролик соберётся сразу»: это видно по делу, а не по
+    // нашей вере в то, что на сервере обновились.
+    await prisma.setting.upsert({
+      where: { key: `factory:approval:${brand}` },
+      create: { key: `factory:approval:${brand}`, value: "умеет" },
+      update: { value: "умеет" },
+    });
+    if (!order.approval) {
+      return prisma.factoryOrder.update({ where: { id }, data: { state: "собирается", script } });
+    }
+    const waiting = await prisma.factoryOrder.update({
+      where: { id },
+      data: { state: "на согласовании", script, topic: String(body.topic || order.topic || "") },
+    });
+    await askApproval(waiting).catch(() => {});
+    return waiting;
+  }
+
   if (event === "result") {
     const done = await prisma.factoryOrder.update({
       where: { id },
@@ -353,6 +439,12 @@ export async function report(brand: string, id: string, body: any) {
 }
 
 /** Заказы дня для пульта: план, работа и результат в одном списке. */
+/** Умеет ли завод согласование — видно по тому, присылал ли он текст. */
+export async function approvalWorks(brand: string) {
+  const row = await prisma.setting.findUnique({ where: { key: `factory:approval:${brand}` } });
+  return row?.value === "умеет";
+}
+
 export async function ordersOf(brand: string, date?: string) {
   const day = date || msk(new Date()).date;
   return prisma.factoryOrder.findMany({ where: { brand, date: day }, orderBy: { at: "asc" } });

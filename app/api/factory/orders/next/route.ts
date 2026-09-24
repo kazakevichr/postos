@@ -23,5 +23,8 @@ export async function GET(req: Request) {
     topic: order.topic,
     facts: order.facts,
     deliver_bot: order.deliverBot,
+    // Спросить «да» перед платными вызовами: завод присылает текст событием
+    // script и ждёт, пока состояние заказа станет «собирается».
+    approval: order.approval,
   });
 }

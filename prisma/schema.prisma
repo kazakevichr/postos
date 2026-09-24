@@ -421,11 +421,15 @@ model FactoryOrder {
   kind       String // news | forecast | make — словарь форматов завода
   date       String // YYYY-MM-DD по Москве
   at         String // HH:MM — на какое время назначен
-  // план → выдан → собирается → готов | ошибка | пропущен
+  // план → выдан → [на согласовании →] собирается → готов
+  //                              ↘ отклонён   ↘ ошибка | пропущен
   state      String    @default("план")
   // Отправлять ли готовое в бот выдачи. Это тумблер формата: выдачу можно
   // выключить и оставить только площадки.
   deliverBot Boolean   @default(true)
+  // Спросить ли «да» перед сборкой. Завод пишет текст, присылает его сюда и
+  // ждёт ответа: без «да» ролик не собирается и деньги не тратятся.
+  approval   Boolean   @default(false)
   topic      String    @default("")
   facts      String    @default("")
   script     String    @default("")
