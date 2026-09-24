@@ -21,6 +21,7 @@ import { brandBot, formatOf } from "@/lib/formats";
 import { brandFormats, scheduleOf } from "@/lib/schedule";
 import { ownerWithTg, sendTo } from "@/lib/telegram";
 import { blocked, routeMap } from "@/lib/routes";
+import { channelsOf } from "@/lib/channels";
 
 /** Расписание заводов живёт в московском времени — один сдвиг на всё. */
 const MSK_MS = 3 * 60 * 60 * 1000;
@@ -144,10 +145,13 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
   // только каналы, включённая выдача в бот ничего не производила — а Роман
   // просил ровно обратного: тумблеры включены → ролик приходит в бот.
   const flags = brand === MONEYBALL ? {} : await routeMap();
+  // Канал с неподключённым аккаунтом «куда отдать» не считается: выложить
+  // туда машина не может, и держится он на боте.
+  const live = new Set((await channelsOf(brand)).filter((c) => c.state === "auto").map((c) => c.key));
   const openRoute = (kind: string) =>
     Object.keys(flags).some((k) => {
       const [platform, kk] = k.split("|");
-      return kk === kind && flags[k] && flags[`${platform}|*`] !== false && !blocked(platform, kind);
+      return kk === kind && flags[k] && live.has(platform) && !blocked(platform, kind);
     });
 
   for (const f of brandFormats(brand)) {

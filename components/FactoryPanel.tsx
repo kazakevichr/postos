@@ -85,6 +85,14 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   }
 
   const { channels, archived, groups, today, now, caps } = data;
+  // Чего этот завод пока не слушается. Пустая строка — слушается, и тумблер
+  // обычный; текст — причина, по которой он заперт.
+  const botLock: string = caps?.botToggle === "pending" ? caps.botNote : "";
+  const approvalLock = (f: Format): string =>
+    caps?.approvalToggle === "pending" ? caps.approvalNote
+    : (caps?.approvalKinds && !caps.approvalKinds.includes(f.kind))
+      ? `формат «${f.label}» пока не умеет согласование: завод соберёт сразу`
+      : "";
   const chan = (key: string) => channels.find((c: any) => c.key === key);
   const formats: Format[] = groups.flatMap((g: any) => g.formats);
   const fmt = (kind: string) => formats.find((f) => f.kind === kind);
@@ -151,14 +159,18 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     return saveSchedule(f.kind, on ? "demand" : "time", slots);
   }
 
-  const Switch = ({ on, onClick, label, tag = "", dim = false }: any) => (
+  // lock — настройка, которой этот завод пока не слушается. Такой тумблер не
+  // притворяется рабочим: он выключен и говорит почему. Правило Романа
+  // 24.09.2026: «чтобы среди тумблеров не было бутафории».
+  const Switch = ({ on, onClick, label, tag = "", dim = false, lock = "" }: any) => (
     <button
-      role="switch" aria-checked={on} aria-label={label}
-      disabled={!canManage || busy === tag}
-      onClick={(e) => { e.stopPropagation(); onClick?.(); }}
-      className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${on ? (dim ? "bg-green-300" : "bg-green-500") : "bg-gray-300"} ${canManage ? "" : "opacity-50 cursor-default"}`}
+      role="switch" aria-checked={lock ? false : on} aria-label={label}
+      disabled={!canManage || busy === tag || Boolean(lock)}
+      title={lock || undefined}
+      onClick={(e) => { e.stopPropagation(); if (!lock) onClick?.(); }}
+      className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${lock ? "bg-gray-200 ring-1 ring-dashed ring-gray-300" : on ? (dim ? "bg-green-300" : "bg-green-500") : "bg-gray-300"} ${canManage && !lock ? "" : "opacity-50 cursor-default"}`}
     >
-      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${on ? "left-4" : "left-0.5"}`} />
+      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${on && !lock ? "left-4" : "left-0.5"}`} />
     </button>
   );
 
@@ -220,13 +232,12 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
         <div className={`rounded-xl border p-3 ${data.botOn ? "bg-white border-gray-200" : "bg-gray-50 border-gray-200"}`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] uppercase tracking-wide text-gray-400">Выдача в бот</div>
-            <Switch on={data.botOn} tag="brandBot" label="Выдача в бот"
+            <Switch on={data.botOn} tag="brandBot" label="Выдача в бот" lock={botLock}
               onClick={() => put({ brandBot: !data.botOn }, "brandBot")} />
           </div>
           <div className="font-semibold mt-0.5 truncate">{data.bot}</div>
           <div className="text-xs text-gray-500">
-            {data.botOn ? "готовое приходит в бот" : "выключено: в бот ничего не уходит"}
-            {caps?.botToggle === "pending" && <span className="text-yellow-700"> · {caps.botNote}</span>}
+            {botLock ? botLock : data.botOn ? "готовое приходит в бот" : "выключено: в бот ничего не уходит"}
           </div>
         </div>
 
@@ -544,12 +555,12 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                       <div className="flex flex-wrap gap-1.5 items-center">
                         {f.mode !== "mirror" && (
                           <button
-                            disabled={!canManage}
+                            disabled={!canManage || Boolean(botLock)}
                             onClick={(e) => { e.stopPropagation(); put({ format: f.kind, bot: !f.bot }, `b-${f.kind}`); }}
-                            className={`text-[11px] px-2 py-px rounded-full border ${f.bot && data.botOn ? CHIP.bot : CHIP.off}`}
-                            title={caps?.botToggle === "pending" ? caps.botNote : "выдача в телеграм-бот"}
+                            className={`text-[11px] px-2 py-px rounded-full border ${botLock ? "bg-gray-50 text-gray-400 border-dashed" : f.bot && data.botOn ? CHIP.bot : CHIP.off}`}
+                            title={botLock || "выдача в телеграм-бот"}
                           >
-                            бот · {!data.botOn ? "выключен у завода" : f.bot ? "вкл" : "выкл"}
+                            бот · {botLock ? "решает завод" : !data.botOn ? "выключен у завода" : f.bot ? "вкл" : "выкл"}
                           </button>
                         )}
                         {f.routes.map((r) => {
@@ -613,7 +624,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                     <td className="text-center">
                       {f.mode === "mirror" ? <span className="text-gray-300">—</span> : (
                         <span className="inline-flex justify-center">
-                          <Switch on={f.bot && data.botOn} tag={`b-${f.kind}`} dim={!data.botOn}
+                          <Switch on={f.bot && data.botOn} tag={`b-${f.kind}`} dim={!data.botOn} lock={botLock}
                             label={`Бот: ${f.label}`} onClick={() => put({ format: f.kind, bot: !f.bot }, `b-${f.kind}`)} />
                         </span>
                       )}
@@ -777,12 +788,12 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                       <div>
                         <div>Телеграм · бот выдачи</div>
                         <div className="text-xs text-gray-500">
-                          {data.botOn ? (f.bot ? `ролик, подпись и обложки приходят в ${data.bot}` : "этот формат в бот не отправляем")
+                          {botLock ? botLock
+                            : data.botOn ? (f.bot ? `ролик, подпись и обложки приходят в ${data.bot}` : "этот формат в бот не отправляем")
                             : "выдача выключена у всего завода"}
-                          {caps?.botToggle === "pending" && <span className="text-yellow-700"> · {caps.botNote}</span>}
                         </div>
                       </div>
-                      <Switch on={f.bot && data.botOn} dim={!data.botOn} tag={`b-${f.kind}`} label="Выдача в бот"
+                      <Switch on={f.bot && data.botOn} dim={!data.botOn} tag={`b-${f.kind}`} label="Выдача в бот" lock={botLock}
                         onClick={() => put({ format: f.kind, bot: !f.bot }, `b-${f.kind}`)} />
                     </div>
                   )}
@@ -815,13 +826,13 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                     <div>
                       <div>Публикация после согласования текста</div>
                       <div className="text-xs text-gray-500">
-                        {f.approval
+                        {approvalLock(f) ? approvalLock(f)
+                          : f.approval
                           ? "завод пишет текст, он приходит в бот; без «да» ролик не собирается и деньги не тратятся"
                           : "ролик собирается и выходит без проверки текста"}
-                        {caps?.approvalToggle === "pending" && <span className="text-yellow-700"> · {caps.approvalNote}</span>}
                       </div>
                     </div>
-                    <Switch on={f.approval} dim={caps?.approvalToggle === "pending"} tag={`a-${f.kind}`}
+                    <Switch on={f.approval} tag={`a-${f.kind}`} lock={approvalLock(f)}
                       label="Согласование текста" onClick={() => put({ format: f.kind, approval: !f.approval }, `a-${f.kind}`)} />
                   </div>
                   {f.mode === "event" && (

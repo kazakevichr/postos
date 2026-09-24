@@ -174,10 +174,33 @@ async function donorOff(kind: string) {
   }
 }
 
-// Итоговое решение для публикатора: тип разрешён и площадка не на паузе.
+/**
+ * Аккаунт канала не подключён — публиковать туда нечем.
+ *
+ * Тумблер «аккаунт подключён» в пульте означал только слово на карточке, а
+ * завод всё равно пробовал выложить и упирался в отказ площадки. Теперь это
+ * ответ публикатору: не подключён — маршрут закрыт, ролик уходит в бот и
+ * выкладывает человек. Правило Романа 24.09.2026: тумблер, который ничего не
+ * делает, — бутафория.
+ *
+ * Читаем напрямую, без lib/channels: тот тянет за собой этот же файл.
+ */
+async function offline(platform: string) {
+  // Матрица маршрутов — устройство СуперФита, других брендов в ней нет.
+  const row = await prisma.channel.findFirst({
+    where: { brand: "superfit", key: platform },
+    select: { mode: true, archived: true },
+  });
+  if (!row) return false; // канала в списке нет — решает только матрица
+  return row.archived || row.mode === "manual";
+}
+
+// Итоговое решение для публикатора: тип разрешён, площадка не на паузе и
+// аккаунт подключён.
 export async function allowed(platform: string, kind: string) {
   if (blocked(platform, kind)) return false;
   if (await donorOff(kind)) return false;
+  if (await offline(platform)) return false;
   const flags = await routeMap();
   const key = `${platform}|${kind}`;
   if (!(key in flags) && kind === "repost") {
