@@ -37,7 +37,7 @@ export async function PUT(req: Request) {
     // Разовая сборка: заказ на текущую минуту, вне расписания.
     else if (b?.now) await orderNow(brand, String(b.now));
     // Ответ на согласование текста: собираем или нет.
-    else if (b?.decide) await decide(String(b.decide), b.ok === true);
+    else if (b?.decide) await decide(String(b.decide), b.ok === true, b.other === true);
     else if (typeof b?.brandBot === "boolean") await setBrandBot(brand, b.brandBot);
     else if (b?.newChannel) await createChannel(brand, b.newChannel);
     else if (b?.channel) {

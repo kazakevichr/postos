@@ -13,7 +13,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!brand) return new NextResponse("forbidden", { status: 403 });
   const order = await prisma.factoryOrder.findUnique({ where: { id: params.id } });
   if (!order || order.brand !== brand) return NextResponse.json({ error: "заказ не найден" }, { status: 404 });
-  return NextResponse.json({ order_id: order.id, state: order.state });
+  // forget — вернуть ли разобранные матчи в пул. «Отклонить» возвращает:
+  // человеку не понравился набор. «Другие матчи» — нет: эти он уже видел.
+  return NextResponse.json({ order_id: order.id, state: order.state, forget: !order.reroll });
 }
 
 // Отчёт завода по заказу. Одна ручка на три события, потому что все три —

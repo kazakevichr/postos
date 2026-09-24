@@ -296,11 +296,15 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                             Собрать
                           </button>
                           <button className="btn btn-secondary text-xs" disabled={busy === `d-${o.id}`}
+                            onClick={() => put({ decide: o.id, ok: false, other: true }, `d-${o.id}`)}>
+                            Другие матчи
+                          </button>
+                          <button className="btn btn-secondary text-xs" disabled={busy === `d-${o.id}`}
                             onClick={() => put({ decide: o.id, ok: false }, `d-${o.id}`)}>
                             Отклонить
                           </button>
                           <span className="text-xs text-gray-500 self-center">
-                            то же самое можно ответить кнопками в телеграме
+                            «Другие матчи» — эти откладываются, завод сразу берётся за новый текст
                           </span>
                         </div>
                       )}

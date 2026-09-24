@@ -187,17 +187,18 @@ async function onCallback(q: any) {
 
   // Согласование текста ролика: «да» пускает заказ в сборку, «нет» закрывает
   // его отклонённым. Жмёт только владелец — это его деньги.
-  if (action === "ok" || action === "no") {
+  if (action === "ok" || action === "no" || action === "ag") {
     const presser = await prisma.user.findFirst({ where: { tgChatId: String(q.from?.id || "") } });
     if (presser?.role !== "OWNER") { await answer("Решает владелец."); return; }
     try {
-      const order = await decide(signupId, action === "ok");
-      await answer(action === "ok" ? "Собираем" : "Отклонил");
+      const order = await decide(signupId, action === "ok", action === "ag");
+      await answer(action === "ok" ? "Собираем" : action === "ag" ? "Ищу другие матчи" : "Отклонил");
+      const head = action === "ok" ? "✅ Собираем. Готовый ролик придёт сюда же."
+        : action === "ag" ? "🔁 Эти откладываю, беру другие матчи. Новый текст придёт сюда же."
+        : "🚫 Текст не принят, ролик не собирается.";
       await tgCall("editMessageText", {
         chat_id: chatId, message_id: q.message.message_id,
-        text: action === "ok"
-          ? `✅ Собираем. Готовый ролик придёт сюда же.\n\n${order.script.slice(0, 2000)}`
-          : `🚫 Текст не принят, ролик не собирается.\n\n${order.script.slice(0, 2000)}`,
+        text: `${head}\n\n${order.script.slice(0, 2000)}`,
       });
     } catch (e: any) {
       await answer(e.message || "не вышло");

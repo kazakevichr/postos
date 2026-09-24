@@ -269,10 +269,11 @@ async function askApproval(order: { id: string; brand: string; kind: string; at:
   await sendTo(
     owner.tgChatId,
     `<b>${label} · ${order.at}</b>\nТекст готов. Без «да» ролик не собирается и деньги не тратятся.\n\n${text}`,
-    [[
-      { text: "✅ Собрать", callback_data: `ok:${order.id}` },
-      { text: "🚫 Отклонить", callback_data: `no:${order.id}` },
-    ]],
+    [
+      [{ text: "✅ Собрать", callback_data: `ok:${order.id}` }],
+      [{ text: "🔁 Другие матчи", callback_data: `ag:${order.id}` },
+       { text: "🚫 Отклонить", callback_data: `no:${order.id}` }],
+    ],
   );
 }
 
@@ -282,16 +283,21 @@ async function askApproval(order: { id: string; brand: string; kind: string; at:
  * «Нет» — это не ошибка завода, а решение: заказ закрывается отклонённым и в
  * журнал уходит «не принят», тем же словом, каким это зовётся у СуперФита.
  */
-export async function decide(id: string, ok: boolean) {
+export async function decide(id: string, ok: boolean, other = false) {
   const order = await prisma.factoryOrder.findUnique({ where: { id } });
   if (!order) throw new Error("заказ не найден");
   if (order.state !== "на согласовании") throw new Error(`заказ уже не ждёт ответа: ${order.state}`);
   if (ok) return prisma.factoryOrder.update({ where: { id }, data: { state: "собирается" } });
+
+  const why = other ? "нужны другие матчи" : "текст не принят";
   const no = await prisma.factoryOrder.update({
     where: { id },
-    data: { state: "отклонён", doneAt: new Date(), error: "текст не принят" },
+    data: { state: "отклонён", doneAt: new Date(), error: why, reroll: other },
   });
-  await toJournal(no, "не принят", "текст не принят");
+  await toJournal(no, "не принят", why);
+  // «Другие матчи» — это не отмена, а переделка: заводим новый заказ сразу,
+  // иначе человеку пришлось бы идти в пульт и нажимать кнопку ещё раз.
+  if (other) await orderNow(order.brand, order.kind).catch(() => {});
   return no;
 }
 
@@ -426,6 +432,7 @@ export async function report(brand: string, id: string, body: any) {
         cost: Number(body.cost || 0) || 0,
       },
     });
+    await savePicks(brand, id, body.picks);
     await toJournal(done, "готов");
     return done;
   }
@@ -443,6 +450,51 @@ export async function report(brand: string, id: string, body: any) {
 }
 
 /** Заказы дня для пульта: план, работа и результат в одном списке. */
+// Сколько держим прогнозы. Две недели — решение Романа 24.09.2026: этого
+// хватает, чтобы матч сыграл и попал в отчёт, а дольше хранить обещание не
+// зачем.
+const PICK_DAYS = 14;
+
+/**
+ * Прогнозы из вышедшего ролика: матч и обещание.
+ *
+ * Строку на матч держим одну: один и тот же матч дважды не разбирается, а
+ * если такое случится, верным будет последнее обещание.
+ */
+async function savePicks(brand: string, orderId: string, rows: unknown) {
+  if (!Array.isArray(rows)) return;
+  for (const r of rows.slice(0, 20)) {
+    const matchId = String((r as any)?.id || "").slice(0, 120);
+    const starts = Date.parse(String((r as any)?.starts || ""));
+    if (!matchId || Number.isNaN(starts)) continue;
+    const data = {
+      match: String((r as any).match || "").slice(0, 120),
+      league: String((r as any).league || "").slice(0, 80),
+      startsAt: new Date(starts),
+      pick: String((r as any).pick || "").slice(0, 120),
+      market: String((r as any).market || "").slice(0, 40),
+      prob: Number.isFinite(Number((r as any).prob)) ? Math.round(Number((r as any).prob)) : null,
+      odds: Number.isFinite(Number((r as any).odds)) ? Number((r as any).odds) : null,
+      orderId,
+    };
+    await prisma.forecast.upsert({
+      where: { brand_matchId: { brand, matchId } },
+      create: { brand, matchId, ...data },
+      update: data,
+    });
+  }
+  // Чистим здесь же: отдельный сторож ради одной таблицы — лишняя деталь,
+  // которая однажды отвалится молча.
+  await prisma.forecast.deleteMany({
+    where: { at: { lt: new Date(Date.now() - PICK_DAYS * 864e5) } },
+  });
+}
+
+/** Прогнозы бренда за последние две недели — свежие сверху. */
+export async function picksOf(brand: string) {
+  return prisma.forecast.findMany({ where: { brand }, orderBy: { startsAt: "desc" } });
+}
+
 /** Умеет ли завод согласование — видно по тому, присылал ли он текст. */
 export async function approvalWorks(brand: string) {
   const row = await prisma.setting.findUnique({ where: { key: `factory:approval:${brand}` } });
