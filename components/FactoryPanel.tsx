@@ -22,7 +22,7 @@ type Format = {
   kind: string; label: string; note: string; mode: string;
   slots: Slot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
-  routes: Route[]; warn: string; canSchedule: boolean; canProduce: boolean;
+  routes: Route[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
 };
 
 const STATE: Record<string, [string, string]> = {
@@ -181,7 +181,8 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
       ? f.slots.filter((s) => s.days.includes(now.weekday) && mins(s.time) > now.minutes)
           .map((s) => ({
             at: s.time, kind: f.kind, label: f.label,
-            state: f.warn ? "не выйдет" : "впереди", error: f.warn || "", topic: "", seconds: 0,
+            // «Только в бот» — не отмена: ролик выйдет, просто площадки закрыты.
+            state: f.wontRun ? "не выйдет" : "впереди", error: f.warn || "", topic: "", seconds: 0,
           }))
       : []
   );

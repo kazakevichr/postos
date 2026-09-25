@@ -33,7 +33,7 @@ export type PanelFormat = {
   mode: "time" | "demand" | "event" | "mirror";
   slots: PanelSlot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
-  routes: PanelRoute[]; warn: string; canSchedule: boolean; canProduce: boolean;
+  routes: PanelRoute[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
 };
 
 
@@ -60,14 +60,21 @@ function routeState(ch: ChannelView | undefined, on: boolean, locked: boolean) {
   return ch.state;
 }
 
+/**
+ * Предупреждение по формату и то, сорвётся ли из-за него выпуск.
+ *
+ * Разница важна: «только в бот» — это не отмена, ролик выйдет и придёт в бот.
+ * Пока предупреждения не различались, лента писала «не выйдет» там, где всё
+ * выйдет, и пульт пугал на ровном месте (замечание Романа 25.09.2026).
+ */
 function warnOf(f: { mode: string; bot: boolean; off: boolean; routes: PanelRoute[] }, hasChannels: boolean, botOn: boolean) {
-  if (f.off) return "донор выключен: нарезки по нему не делаются";
-  if (f.mode === "demand") return "";
+  if (f.off) return { warn: "донор выключен: нарезки по нему не делаются", wontRun: true };
+  if (f.mode === "demand") return { warn: "", wontRun: false };
   const live = f.routes.filter((r) => r.state === "auto" || r.state === "manual");
   const bot = f.bot && botOn;
-  if (!live.length && !bot) return "отдавать некуда: выключены и бот, и все каналы";
-  if (!live.length && hasChannels) return "только в бот: каналы выключены или на паузе";
-  return "";
+  if (!live.length && !bot) return { warn: "отдавать некуда: выключены и бот, и все каналы", wontRun: true };
+  if (!live.length && hasChannels) return { warn: "только в бот: каналы выключены или на паузе", wontRun: false };
+  return { warn: "", wontRun: false };
 }
 
 // ── MoneyBall: расписание и заказы ─────────────────────────────────────────
@@ -95,7 +102,7 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       bot: set.bot, approval: set.approval, off: false,
       routes: [] as PanelRoute[], canSchedule: true, canProduce: true,
     };
-    formats.push({ ...base, warn: warnOf(base, channels.length > 0, botOn) });
+    formats.push({ ...base, ...warnOf(base, channels.length > 0, botOn) });
   }
 
   const orders = await ordersOf(MONEYBALL, now.date);
@@ -165,7 +172,7 @@ async function superfitPanel(now: ReturnType<typeof msk>) {
             canSchedule: true, canProduce: true,
           };
         })();
-    return { ...base, warn: warnOf(base, channels.length > 0, botOn) };
+    return { ...base, ...warnOf(base, channels.length > 0, botOn) };
   };
 
   const NOTE: Record<string, string> = {
