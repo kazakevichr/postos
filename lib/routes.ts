@@ -272,6 +272,13 @@ export const ACCOUNT_PLATFORM: Record<string, string> = {
   superfit24_woman: "ig_woman",
   superfit24_training: "ig_man",
   superfit05: "tiktok",
+  // Ютуб-канал завода. КЛЮЧ — АДРЕС КАНАЛА, а не его название: в «Соц.Сетях»
+  // аккаунт хранится под handle (@dobro_fitnessbot), а «SuperFit» — то, что
+  // канал показывает людям. Из-за этого расхождения канал числился
+  // незаводским и висел с паузой «не публикуется», хотя все рубильники по
+  // нему были включены (27.09.2026). Название оставлено рядом: под ним канал
+  // записан в целях публикации у самого завода (brand.json → youtube).
+  dobro_fitnessbot: "youtube",
   SuperFit: "youtube",
 };
 
