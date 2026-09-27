@@ -13,7 +13,7 @@
 import { prisma } from "@/lib/prisma";
 import { brandLabel } from "@/lib/brands";
 import { DEFAULT_BRAND } from "@/lib/factory";
-import { MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
+import { MB_EVENTS, MB_FORMATS, MONEYBALL } from "@/lib/moneyball";
 import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
 import { approvalWorks, factoryCan, jobIdOf, msk, ordersEnabled, ordersOf, refresh } from "@/lib/orders";
 import { archivedOf, channelsOf, STATE_WORD, type ChannelView } from "@/lib/channels";
@@ -34,6 +34,9 @@ export type PanelFormat = {
   slots: PanelSlot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
   routes: PanelRoute[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
+  // Слова карточки формата по событию. Без них карточка говорит о нарезках —
+  // первом формате по событию, под который она и рисовалась.
+  event?: { why: string; toggle: string; on: string; off: string };
 };
 
 
@@ -105,6 +108,23 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
     formats.push({ ...base, ...warnOf(base, channels.length > 0, botOn) });
   }
 
+  // По событию: графика нет, заказов нет — завод сам решает, что созрело, и
+  // спрашивает у нас только тумблеры.
+  const events: PanelFormat[] = [];
+  for (const e of MB_EVENTS) {
+    const set = await formatOf(MONEYBALL, e.kind);
+    const base = {
+      kind: e.kind, label: e.label, note: e.note, event: e.event,
+      mode: "event" as const, slots: [], when: e.when, week: 0, next: "", publish: "сразу",
+      bot: set.bot, approval: false, off: set.off,
+      routes: [] as PanelRoute[], canSchedule: false, canProduce: true,
+    };
+    const w = warnOf(base, channels.length > 0, botOn);
+    // Выключенный формат не выйдет, но предупреждать о нём незачем: это
+    // решение, а не беда.
+    events.push({ ...base, ...(set.off ? { warn: "", wontRun: true } : w) });
+  }
+
   const orders = await ordersOf(MONEYBALL, now.date);
   const today = orders.map((o) => ({
     at: o.at, kind: o.kind,
@@ -114,9 +134,26 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
     // пульт покажет сценарий и кнопки «Собрать» / «Отклонить».
     id: o.id, script: o.state === "на согласовании" ? o.script : "",
   }));
+
+  // Форматы по событию заказов не имеют: в ленту дня их приносит журнал.
+  const since = new Date(Date.parse(`${now.date}T00:00:00.000Z`) - 3 * 3600 * 1000);
+  const jobs = await prisma.factoryJob.findMany({
+    where: { brand: MONEYBALL, kind: { in: MB_EVENTS.map((e) => e.kind) }, at: { gte: since } },
+    orderBy: { at: "asc" },
+  });
+  for (const j of jobs) {
+    today.push({
+      at: msk(j.at).time, kind: j.kind,
+      label: MB_EVENTS.find((e) => e.kind === j.kind)?.label || j.kind,
+      state: j.event === "создан" ? "собирается" : j.event || "в работе",
+      topic: j.topic, error: j.error, seconds: j.seconds, id: "", script: "",
+    });
+  }
+  today.sort((a, b) => a.at.localeCompare(b.at));
+
   return {
     channels, archived: await archivedOf(MONEYBALL), botOn,
-    groups: [{ title: "По расписанию", formats }], today,
+    groups: [{ title: "По расписанию", formats }, { title: "По событию", formats: events }], today,
     caps: {
       publisher: "Постос",
       // Маршруты форматов по каналам есть только у СуперФита: у MoneyBall
@@ -128,6 +165,9 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       // предупредить, что ролик соберётся сразу.
       approvalToggle: (await approvalWorks(MONEYBALL)) ? "live" : "pending",
       approvalNote: "завод ещё ни разу не присылал текст на согласование — пока на сервере старая сборка, ролик соберётся сразу",
+      // Согласование умеют только форматы по расписанию: итоги разбора — это
+      // счёт матчей, проверять в них нечего.
+      approvalKinds: MB_FORMATS.map((f) => f.kind),
       scheduleDays: true,
     },
   };

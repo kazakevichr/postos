@@ -23,6 +23,7 @@ type Format = {
   slots: Slot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
   routes: Route[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
+  event?: { why: string; toggle: string; on: string; off: string };
 };
 
 const STATE: Record<string, [string, string]> = {
@@ -756,7 +757,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                       )}
                     </>
                   ) : f.mode === "event" ? (
-                    <p className="text-gray-600">Расписания нет: нарезка делается, когда донор выложил новый ролик.</p>
+                    <p className="text-gray-600">{f.event?.why || "Расписания нет: нарезка делается, когда донор выложил новый ролик."}</p>
                   ) : (
                     <p className="text-gray-600">Завод не участвует: это зеркало ваших постов на видеоплощадки.</p>
                   )}
@@ -764,7 +765,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
 
                 <section>
                   <h3 className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Когда выпускать</h3>
-                  {f.mode === "event" ? (
+                  {f.mode === "event" && f.kind.startsWith("repost:") ? (
                     <div className="flex items-center gap-2">
                       <select
                         disabled={!canManage}
@@ -782,7 +783,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                       )}
                     </div>
                   ) : (
-                    <p className="text-gray-600">Сразу, как ролик готов. Отдельное время выпуска есть только у нарезок.</p>
+                    <p className="text-gray-600">Сразу, как {f.mode === "event" && !f.kind.startsWith("repost:") ? "собрано" : "ролик готов"}. Отдельное время выпуска есть только у нарезок.</p>
                   )}
                 </section>
 
@@ -794,7 +795,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                         <div>Телеграм · бот выдачи</div>
                         <div className="text-xs text-gray-500">
                           {botLock ? botLock
-                            : data.botOn ? (f.bot ? `ролик, подпись и обложки приходят в ${data.bot}` : "этот формат в бот не отправляем")
+                            : data.botOn ? (f.bot ? `${f.event ? "слайды альбомом и подпись" : "ролик, подпись и обложки"} приходят в ${data.bot}` : "этот формат в бот не отправляем")
                             : "выдача выключена у всего завода"}
                         </div>
                       </div>
@@ -843,12 +844,14 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                   {f.mode === "event" && (
                     <div className="flex items-center justify-between gap-3 py-2 border-b">
                       <div>
-                        <div>Делать нарезки этого донора</div>
+                        <div>{f.event?.toggle || "Делать нарезки этого донора"}</div>
                         <div className="text-xs text-gray-500">
-                          {f.off ? "выключено: завод пропускает его новые ролики" : "включено: новый ролик донора идёт в работу"}
+                          {f.off
+                            ? f.event?.off || "выключено: завод пропускает его новые ролики"
+                            : f.event?.on || "включено: новый ролик донора идёт в работу"}
                         </div>
                       </div>
-                      <Switch on={!f.off} tag={`f-${f.kind}`} label="Производить нарезки"
+                      <Switch on={!f.off} tag={`f-${f.kind}`} label={f.event?.toggle || "Производить нарезки"}
                         onClick={() => put({ format: f.kind, off: !f.off }, `f-${f.kind}`)} />
                     </div>
                   )}
