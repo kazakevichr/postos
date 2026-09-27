@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { DELIVERY_ONLY, factoryAuth, jobBrands } from "@/lib/factory";
-import { brandLabel } from "@/lib/brands";
-import { notifyRoles } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -69,17 +67,10 @@ export async function POST(req: Request) {
       });
     }
   }
-  // Пуш в Телеграм: публикации и сбои — СММ и владельцу.
-  if (fields.event === "опубликован") {
-    const where = links.map((l: any) => `<a href="${l.link}">${l.account}</a>`).join(", ");
-    void notifyRoles(["SMM", "OWNER"],
-      `📤 <b>Опубликовано</b>${fields.kind ? ` · ${fields.kind}` : ""}\n${fields.topic || "(без темы)"}` +
-      (where ? `\n${where}` : ""));
-  } else if (fields.event === "ошибка" || fields.event === "не принят") {
-    // Заводов три, и «Завод: ошибка · make» не говорит, чей это make.
-    void notifyRoles(["SMM", "OWNER"],
-      `⚠️ <b>Завод ${brandLabel(brand)}: ${fields.event}</b>${fields.kind ? ` · ${fields.kind}` : ""}\n` +
-      `${fields.topic || "(без темы)"}${fields.error ? `\n${fields.error}` : ""}`);
-  }
+  // В Телеграм отсюда больше ничего не уходит. Весь контент — готовое,
+  // опубликованное и то, что не вышло, — приходит в бот выдачи
+  // @autopostingdobro_bot (решение Романа 27.09.2026). Пока журнал ещё и
+  // пушил в @dobro_inc_bot, одна ошибка публикации приходила в два чата.
+  // Беды, которые повторяются, поднимает lib/noticeChecks.ts — сводкой.
   return NextResponse.json({ ok: true });
 }
