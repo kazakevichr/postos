@@ -29,8 +29,11 @@ export async function POST(req: Request) {
 
   const endOfToday = new Date();
   endOfToday.setUTCHours(23, 59, 59, 999);
+  // Задачи уволенных не напоминаем ни им, ни владельцу. Раньше рассылка
+  // шла мимо статуса: уволенной СММ каждое утро приходили её «Добрать норму»,
+  // а владелец получал их же списком просроченных (27.09.2026).
   const tasks = await prisma.task.findMany({
-    where: { isDone: false, dueDate: { lte: endOfToday } },
+    where: { isDone: false, dueDate: { lte: endOfToday }, assignedTo: { isActive: true } },
     include: { assignedTo: true },
   });
   const now = new Date();

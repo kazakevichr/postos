@@ -42,6 +42,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   const user = await prisma.user.update({ where: { id: params.id }, data });
 
+  // Уволили — автозадачи нормы («Добрать норму за …») закрываем: их заводила
+  // договорённость с этим человеком, и без него они просто висят
+  // просроченными. Ручные задачи не трогаем — их передаёт владелец.
+  if (body.isActive === false) {
+    await prisma.task.updateMany({
+      where: { assignedToUserId: user.id, isDone: false, isAuto: true, source: "норма СММ" },
+      data: { isDone: true },
+    });
+  }
+
   return NextResponse.json({ id: user.id, isActive: user.isActive });
 }
 

@@ -15,6 +15,12 @@ export async function POST(req: Request) {
   const { date, hour, minute, weekday } = kratParts();
   if (!isWorkday(weekday)) return NextResponse.json({ skipped: "воскресенье" });
 
+  // Норма — договорённость с конкретным человеком. Нет активного СММ — нет и
+  // нормы: ни напоминаний, ни ночного «не выполнена» владельцу.
+  if (!(await prisma.user.findFirst({ where: { role: "SMM", isActive: true } }))) {
+    return NextResponse.json({ skipped: "нет активного СММ" });
+  }
+
   const { rules, days } = await quotaDays(2);
   const today = days.find((d: any) => d.isToday);
   if (!today) return NextResponse.json({ skipped: "нет данных" });

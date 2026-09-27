@@ -198,7 +198,10 @@ async function checkFactory() {
 async function checkPeople() {
   const keep: string[] = [];
 
-  const overdue = await prisma.task.count({ where: { isDone: false, dueDate: { lt: new Date() } } });
+  // Задачи уволенных не в счёт: делать их некому, и счётчик только пугает.
+  const overdue = await prisma.task.count({
+    where: { isDone: false, dueDate: { lt: new Date() }, assignedTo: { isActive: true } },
+  });
   if (overdue > 0) {
     keep.push("tasks:overdue");
     await raise({

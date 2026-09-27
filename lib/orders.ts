@@ -378,10 +378,17 @@ export async function claim(brand: string, now = new Date()) {
   const cell = await prisma.planSlot.findUnique({
     where: { brand_date_slot: { brand, date: ready.date, slot: ready.kind } },
   });
-  const order = await prisma.factoryOrder.update({
-    where: { id: ready.id },
+  // Выдача — одним условным обновлением: «план → выдан», только если заказ
+  // всё ещё в плане. Прочитать и потом записать нельзя: два вопроса завода в
+  // одну секунду оба видели «план» и оба получали заказ. 27.09.2026 так
+  // Персонаж собрался дважды по одной теме — при перезапуске бота часовой
+  // цикл и цикл заказов спросили одновременно.
+  const won = await prisma.factoryOrder.updateMany({
+    where: { id: ready.id, state: "план" },
     data: { state: "выдан", takenAt: now, topic: cell?.topic || "", facts: cell?.facts || "" },
   });
+  if (won.count !== 1) return null; // заказ уже забрал соседний запрос
+  const order = await prisma.factoryOrder.findUniqueOrThrow({ where: { id: ready.id } });
   await toJournal(order, "создан");
   return order;
 }
