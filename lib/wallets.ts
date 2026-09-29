@@ -54,6 +54,15 @@ export const PROJECTS: Record<
     dryNote:
       "Завод платит другому исполнителю, производство не остановлено — но замена дороже, стоит пополнить.",
   },
+  moneyball: {
+    title: "MoneyBall",
+    blockedTitle: "Производство приостановлено.",
+    blockedNote:
+      "Заказы ждут пополнения и поднимутся сами, как только оно придёт.",
+    dryTitle: "Контент выходит на замене.",
+    dryNote:
+      "Завод платит другому исполнителю, производство не остановлено — но замена дороже, стоит пополнить.",
+  },
   oracle: {
     title: "Оракл",
     blockedTitle: "Часть продукта не работает у подписчиков.",
@@ -128,6 +137,52 @@ export const SERVICES: Record<
   },
   fal: {
     project: "superfit",
+    title: "fal.ai (вырезание фона)",
+    unit: "$",
+    blocks: false,
+    link: "https://fal.ai/dashboard",
+    api: "остаток не отдаёт",
+  },
+
+  // ── MoneyBall ───────────────────────────────────────────────────────────
+  // Завод MoneyBall — отдельная копия движка и отдельный набор ключей. До
+  // 29.09.2026 он слал замеры под именами СуперФита (router, heygen, …) и
+  // затирал его строки: в разделе «Деньги» два проекта выглядели одним, а
+  // чей расход показан — зависело от того, чей замер пришёл последним.
+  moneyball_router: {
+    project: "moneyball",
+    title: "Роутер (router.cheap)",
+    unit: "$",
+    blocks: false,
+    link: "https://router.cheap",
+    api: "расход — да, остаток — нет",
+  },
+  moneyball_openai: {
+    project: "moneyball",
+    title: "OpenAI",
+    unit: "$",
+    blocks: false,
+    link: "https://platform.openai.com/settings/organization/billing",
+    api: "остаток не отдаёт",
+  },
+  moneyball_eleven: {
+    project: "moneyball",
+    title: "ElevenLabs (озвучка)",
+    unit: "символов",
+    blocks: false,
+    link: "https://elevenlabs.io/app/settings/billing",
+    api: "отдаст после перевыпуска ключа с правом user_read",
+  },
+  moneyball_heygen: {
+    project: "moneyball",
+    title: "HeyGen (ИИ-аватар)",
+    unit: "с видео",
+    blocks: true,
+    link: "https://app.heygen.com",
+    api: "остаток — да",
+  },
+  moneyball_fal: {
+    project: "moneyball",
     title: "fal.ai (вырезание фона)",
     unit: "$",
     blocks: false,
