@@ -145,6 +145,11 @@ export async function POST(req: Request) {
       update: { ...fields, state: next },
     });
     if (prev?.state === next) continue;      // ничего не изменилось — молчим
+    // Сервис, помеченный «не пользуемся», молчит и при пустом балансе. Замеры
+    // по нему приходить не перестают (завод не знает о пометке), но будить
+    // человека из-за денег на том, чем он сознательно не пользуется, незачем:
+    // ровно так 29.09 прилетело «кончился баланс fal» по отключённому fal.
+    if (prev?.inactive) continue;
 
     const name = fields.title;
     const proj = PROJECTS[meta.project] || PROJECTS[DEFAULT_PROJECT];

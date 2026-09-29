@@ -136,10 +136,15 @@ async function checkAccounts() {
 async function checkFactory() {
   const keep: string[] = [];
   const since = new Date(Date.now() - 3 * DAY);
-  const bad = await prisma.factoryJob.findMany({
+  // Отказ по выключенному рубильнику — НЕ падение. Завод сообщает им, что
+  // человек сам запретил выпуск, и записывает это событием «ошибка». Читать
+  // такое как поломку — значит каждый день пугать человека его же решением, а
+  // заодно прятать настоящие падения среди ложных.
+  const ON_PURPOSE = /выключен на всех площадках|не задано ни одного аккаунта публикации/;
+  const bad = (await prisma.factoryJob.findMany({
     where: { at: { gte: since }, event: { in: ["ошибка", "не принят"] } },
     orderBy: { at: "desc" },
-  });
+  })).filter((j) => !ON_PURPOSE.test(j.error || ""));
 
   const byKind = new Map<string, typeof bad>();
   for (const j of bad) {
