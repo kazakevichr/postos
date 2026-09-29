@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { accessBrands, currentAccess } from "@/lib/access";
+import { factoryAuth } from "@/lib/factory";
 import { notifyRoles } from "@/lib/telegram";
 import {
   DEFAULT_PROJECT,
@@ -41,9 +42,14 @@ async function editor(): Promise<{ name: string; projects: string[] } | null> {
   const projects = walletProjectsOf(await accessBrands(access));
   return projects.length ? { name: access.name, projects } : null;
 }
+// Замеры шлёт не только СуперФит.
+//
+// Раньше здесь сверялся один IG_HOST_KEY, и завод MoneyBall со своим ключом
+// получал 403 на каждый замер: его кошельки не доходили вовсе, а в разделе
+// «Деньги» жили только строки СуперФита. Признаём любой заводской ключ — тот
+// же, которым заводы пишут в журнал и спрашивают маршруты.
 function byKey(req: Request) {
-  const need = process.env.IG_HOST_KEY;
-  return Boolean(need) && req.headers.get("x-factory-key") === need;
+  return factoryAuth(req) !== null;
 }
 
 const money = (n: number) => `$${n.toFixed(2)}`;
