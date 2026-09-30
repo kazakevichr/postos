@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { SMM_ROLES, currentAccess } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { brandsOf } from "@/lib/brands";
-import NeuroAnalytics from "@/components/NeuroAnalytics";
+import SocialStats from "@/components/SocialStats";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +10,8 @@ export default async function AnalyticsPage() {
   const access = await currentAccess();
   if (!access || !SMM_ROLES.includes(access.role)) redirect("/");
 
-  // Аналитика разбирает те же аккаунты, что и Соц.Сети, — значит и рамки
-  // направления у них должны быть одни.
+  // Цифры и их разбор — одни и те же аккаунты, значит и рамки направления
+  // у них одни.
   const project = access.projectId
     ? await prisma.project.findUnique({
         where: { id: access.projectId },
@@ -27,7 +27,7 @@ export default async function AnalyticsPage() {
   if (project && brands.length === 0) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-bold">{"Нейро-аналитика"}</h1>
+        <h1 className="text-xl font-bold">{"Статистика Соц.сети"}</h1>
         <p className="card text-sm text-gray-500">
           К направлению «{project.name}» не привязано ни одного аккаунта соцсетей. Привязка задаётся
           в настройках проекта, в блоке «Контент».
@@ -37,6 +37,6 @@ export default async function AnalyticsPage() {
   }
 
   return (
-    <NeuroAnalytics isOwner={access.canEdit} projectName={project?.name} />
+    <SocialStats canManage={access.canEdit} brands={brands.length ? brands : undefined} projectName={project?.name} />
   );
 }

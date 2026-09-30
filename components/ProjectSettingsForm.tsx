@@ -143,7 +143,7 @@ export default function ProjectSettingsForm({
         </label>
       </div>
 
-      <Block title="Контент" note="что показывать в Соц.Сетях и на заводе" />
+      <Block title="Контент" note="что показывать в статистике и на заводе" />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div className="flex flex-col gap-1 sm:col-span-2">
           Бренды соцсетей

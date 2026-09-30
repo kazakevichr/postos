@@ -107,7 +107,7 @@ export default function NeuroAnalytics({
   };
 
   return (
-    <div className="p-6 space-y-4 max-w-6xl">
+    <div className="space-y-4 max-w-6xl">
       <div className="card flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold">🧠 Нейро-аналитика контента</h1>

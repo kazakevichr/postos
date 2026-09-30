@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { socialScope } from "@/lib/access";
-import { accounts, addProfile, connectLink, upKey } from "@/lib/uploadpost";
+import { accounts, addProfile, connectLink, removeProfile, upKey } from "@/lib/uploadpost";
 import { allBrands, brandTitle } from "@/lib/brands";
 
 export const dynamic = "force-dynamic";
@@ -48,10 +48,14 @@ export async function POST(req: Request) {
     }
     if (b.action === "link") {
       const origin = new URL(req.url).origin;
-      const url = await connectLink(brand, String(b.username || ""), `${origin}/social`);
+      const url = await connectLink(brand, String(b.username || ""), `${origin}/factory`);
       return NextResponse.json({ ok: true, url });
     }
-    return NextResponse.json({ error: "action: add | link" }, { status: 400 });
+    if (b.action === "remove") {
+      await removeProfile(brand, String(b.username || ""));
+      return NextResponse.json({ ok: true });
+    }
+    return NextResponse.json({ error: "action: add | link | remove" }, { status: 400 });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 400 });
   }

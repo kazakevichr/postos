@@ -195,7 +195,7 @@ export async function addProfile(brand: string, title: string): Promise<Profile>
 
 /**
  * Ссылка на страницу подключения соцсетей к аккаунту проекта. Живёт 48
- * часов, после подключения возвращает в «Соц.Сети».
+ * часов, после подключения возвращает в «Контент-завод».
  */
 export async function connectLink(brand: string, username: string, redirect: string): Promise<string> {
   if (!belongs(brand, username)) throw new Error("этот аккаунт не принадлежит проекту");
@@ -210,4 +210,19 @@ export async function connectLink(brand: string, username: string, redirect: str
   });
   if (!d.access_url) throw new Error("upload-post не выдал ссылку");
   return String(d.access_url);
+}
+
+/**
+ * Удалить профиль проекта. Только пустой и не основной: профиль с
+ * подключёнными соцсетями — это чьи-то входы, и терять их одним кликом нельзя.
+ */
+export async function removeProfile(brand: string, username: string) {
+  if (!belongs(brand, username)) throw new Error("этот профиль не принадлежит проекту");
+  if (username === brand) throw new Error("основной профиль не удаляется — в него публикует завод");
+  const state = await accounts(brand);
+  const p = state.profiles.find((x) => x.username === username);
+  if (!p) throw new Error("профиль не найден");
+  if (p.platforms.some((x) => x.connected)) throw new Error("к профилю подключены соцсети — сначала отключите их в upload-post");
+  await call(brand, "/uploadposts/users", { method: "DELETE", body: JSON.stringify({ username }) });
+  await prisma.setting.deleteMany({ where: { key: titleKey(username) } });
 }

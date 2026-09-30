@@ -6,7 +6,6 @@
 import { useEffect, useMemo, useState } from "react";
 import PeriodPicker, { Range, rangeDays, rangeFor } from "@/components/PeriodPicker";
 import { BRAND_NAMES } from "@/lib/brands";
-import PublishAccounts from "@/components/PublishAccounts";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "📸 Инстаграм",
@@ -87,17 +86,6 @@ export default function SocialDashboard({
   const [note, setNote] = useState("");
   const [brand, setBrand] = useState("all");
   const [profile, setProfile] = useState("all");
-  // Вкладка: живые аккаунты или архив. Архив — не отдельная страница: он про
-  // те же карточки, просто выключенные.
-  const [view, setView] = useState<"live" | "arch">("live");
-  // Какую карточку сейчас спрашивают «точно архивировать?». Архивация гасит
-  // маршруты публикации — это не то, что делают случайным кликом.
-  const [asking, setAsking] = useState("");
-  // Кому сейчас пишут заметку и что именно. «Ждём документы от Меты» — знание,
-  // которого нет ни в одном ответе площадки.
-  const [noting, setNoting] = useState("");
-  const [noteText, setNoteText] = useState("");
-
   async function load() {
     const r = await fetch("/api/social/stats");
     const j = await r.json();
@@ -130,46 +118,6 @@ export default function SocialDashboard({
     }
   }
 
-  // Архивация и возврат. Кнопка живёт в самой карточке, потому что решение
-  // принимают глядя на аккаунт, а не на список где-то внизу страницы.
-  async function archive(id: string, action: "archive" | "restore") {
-    setBusy(true);
-    try {
-      const r = await fetch("/api/social/archive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action }),
-      }).then((x) => x.json());
-      setNote(
-        r.error
-          ? `Не вышло: ${r.error}`
-          : action === "archive"
-            ? `@${r.username} в архиве${r.routeOff ? `, маршрут «${r.platform}» выключен` : ""}. Цифры сохранены.`
-            : `@${r.username} возвращён. Маршруты остались выключенными — включите вручную, когда будете готовы.`
-      );
-      setAsking("");
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveNote(id: string) {
-    setBusy(true);
-    try {
-      await fetch("/api/social/archive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action: "note", note: noteText }),
-      });
-      setNoting("");
-      setNoteText("");
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // Аккаунты вне направления не должны попадать даже в подсчёты, поэтому
   // режем не на показе, а на входе.
   const inBrand = useMemo(
@@ -179,7 +127,6 @@ export default function SocialDashboard({
   // Архивный аккаунт не должен попадать ни в плитки, ни в графики: его цифры
   // заморожены, и подмешивание их в суммы выглядит как провал по подписчикам.
   const all = useMemo(() => inBrand.filter((a) => !a.archived), [inBrand]);
-  const archivedAccounts = useMemo(() => inBrand.filter((a) => a.archived), [inBrand]);
   // Оси фильтров строятся от данных: появится новая платформа — появится чип
   const platforms = useMemo(() => [...new Set(all.map((a) => a.platform))], [all]);
   const brands = useMemo(() => [...new Set(all.map((a) => a.brand))], [all]);
@@ -329,7 +276,6 @@ export default function SocialDashboard({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold mb-1">Соц.Сети</h1>
           <p className="text-sm text-gray-500">
             Все платформы и проекты · обновлено {updatedAt} · авто-сбор каждые 20 минут
           </p>
@@ -342,68 +288,8 @@ export default function SocialDashboard({
       </div>
       {note && <p className="text-sm text-gray-500">{note}</p>}
 
-      {/* Аккаунты публикации — первым блоком: подключить новый аккаунт или
-          площадку нужно чаще, чем листать статистику. */}
-      <PublishAccounts brands={only} />
-
-      <div className="flex gap-1 border-b pl-0.5">
-        <button
-          className={`px-3.5 py-2 text-[15px] font-medium rounded-t-lg border border-b-0 ${view === "live" ? "bg-white border-gray-200" : "border-transparent text-gray-500 hover:text-gray-700"}`}
-          onClick={() => setView("live")}>
-          Аккаунты · {all.length}
-        </button>
-        <button
-          className={`px-3.5 py-2 text-[15px] font-medium rounded-t-lg border border-b-0 ${view === "arch" ? "bg-white border-gray-200" : "border-transparent text-gray-500 hover:text-gray-700"}`}
-          onClick={() => setView("arch")}>
-          🗄 Архив аккаунтов · {archivedAccounts.length}
-        </button>
-      </div>
-
-      {view === "arch" ? (
-        <div className="space-y-4">
-          <p className="card text-sm text-gray-500">
-            Архивные не опрашиваются у площадки, не входят в суммы и не получают публикаций.
-            Подписчики, история и все посты сохранены — «Вернуть аккаунт» поднимает его с того же места.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {archivedAccounts.map((a) => (
-              <div key={a.id} className="card relative bg-gray-50">
-                <span className="absolute top-3 right-3 w-8 h-8 rounded-full bg-gray-100 grayscale flex items-center justify-center">🗄</span>
-                <div className="flex items-center gap-3 pr-9">
-                  {a.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={a.avatar} alt="" className="w-10 h-10 rounded-full bg-gray-100 grayscale opacity-60" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">📸</div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="font-semibold text-gray-600 truncate">{a.title}</div>
-                    <div className="text-sm text-gray-500 truncate">
-                      {PLATFORM_NAMES[a.platform] || a.platform} · {fmt(a.followers)} подп. · {a.postsKept ?? 0} постов
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      цифры на {new Date(a.lastSeenAt || a.updatedAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-gray-100">
-                  <span className="badge-red">{a.archiveNote || "убран вручную"}</span>
-                  {canManage && (
-                    <button className="btn btn-secondary" disabled={busy} onClick={() => archive(a.id, "restore")}>
-                      ↩ Вернуть аккаунт
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {!archivedAccounts.length && (
-              <div className="card text-sm text-gray-500">
-                В архиве пусто. Аккаунты попадают сюда кнопкой «Архивировать» в карточке.
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
+      {/* Управление аккаунтами — подключение, архив, заметки — живёт в
+          «Контент-заводе», блок «Аккаунты». Здесь только цифры. */}
       <>
       <div className="flex flex-wrap items-center gap-2">
         <PeriodPicker value={range} onChange={setRange} />
@@ -471,15 +357,6 @@ export default function SocialDashboard({
         </div>
       )}
 
-      <a href="/analytics" className="card flex items-center justify-between gap-3 hover:bg-gray-50">
-        <div>
-          <h2 className="font-semibold">🧠 Нейро-аналитика контента</h2>
-          <p className="text-xs text-gray-400">
-            переехала на отдельную страницу: выводы с достоверностью, срезы по паспорту, lead-gen и рекомендации
-          </p>
-        </div>
-        <span className="text-brand-700 text-sm whitespace-nowrap">Открыть →</span>
-      </a>
 
       {factoryStatus && (
         <div className={`card flex items-center gap-3 text-sm ${factoryStatus.ok ? "" : "border-yellow-400 bg-yellow-50"}`}>
@@ -566,52 +443,10 @@ export default function SocialDashboard({
                 </span>
               )}
               {canManage && (
-                <span className="flex gap-1.5 shrink-0">
-                  {!a.publishes && (
-                    <button className="btn btn-secondary" disabled={busy}
-                      onClick={() => {
-                        setNoting(noting === a.id ? "" : a.id);
-                        setNoteText(a.note || "");
-                      }}>
-                      ✎
-                    </button>
-                  )}
-                  <button className="btn btn-secondary" disabled={busy}
-                    onClick={() => setAsking(asking === a.id ? "" : a.id)}>
-                    🗄 Архивировать
-                  </button>
-                </span>
+                <a href="/factory" className="text-xs text-brand-700 hover:underline shrink-0">управлять →</a>
               )}
             </div>
 
-            {noting === a.id && (
-              <div className="mt-2 flex gap-2">
-                <input className="input" value={noteText} autoFocus
-                  placeholder="Ждём документы от Меты"
-                  onChange={(e) => setNoteText(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveNote(a.id)} />
-                <button className="btn btn-primary shrink-0" disabled={busy} onClick={() => saveNote(a.id)}>
-                  Сохранить
-                </button>
-              </div>
-            )}
-
-            {asking === a.id && (
-              <div className="mt-2.5 p-2.5 rounded-lg bg-yellow-50 border border-yellow-200 text-[13px] text-yellow-900">
-                <b>Архивировать {a.title}?</b>
-                <ul className="list-disc pl-4 my-1.5 space-y-0.5">
-                  <li>перестаём опрашивать площадку — ошибок сбора не будет</li>
-                  <li>маршрут публикации гасим: завод сюда не постит</li>
-                  <li>уходит из сумм и очереди зеркалирования</li>
-                  <li>подписчики, история и {a.postsKept ?? 0} постов сохраняются</li>
-                </ul>
-                <div className="flex gap-2">
-                  <button className="btn bg-red-100 text-red-800 hover:bg-red-200" disabled={busy}
-                    onClick={() => archive(a.id, "archive")}>Архивировать</button>
-                  <button className="btn btn-secondary" onClick={() => setAsking("")}>Отмена</button>
-                </div>
-              </div>
-            )}
           </div>
         ))}
         {!accounts.length && (
@@ -666,7 +501,6 @@ export default function SocialDashboard({
         </div>
       )}
       </>
-      )}
     </div>
   );
 }

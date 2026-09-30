@@ -116,7 +116,26 @@ export async function register() {
     }
   };
 
-  const tickAll = async () => { await tick(); await remind(); await quota(); await meta(); await orders(); await notices(); };
+  // Темы из источников Постоса: раз в шесть часов вписываем ближайшие дни,
+  // чтобы завод не пришёл к пустой клетке. Чаще незачем — ролик в день.
+  let lastFill = 0;
+  const fill = async () => {
+    if (Date.now() - lastFill < 6 * 3600 * 1000) return;
+    lastFill = Date.now();
+    try {
+      const r = await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/plan/fill`, {
+        method: "POST",
+        headers: { "x-factory-key": process.env.IG_HOST_KEY || "" },
+      });
+      const s = await r.json();
+      const n = Object.values(s.brands || {}).reduce((a: number, x: any) => a + (x?.filled || 0), 0);
+      if (n) console.log(`[план] вписано тем из источников: ${n}`);
+    } catch (e) {
+      console.error("[план] заполнение упало:", e);
+    }
+  };
+
+  const tickAll = async () => { await tick(); await remind(); await quota(); await meta(); await orders(); await notices(); await fill(); };
   setInterval(tickAll, 20 * 60 * 1000);
   setTimeout(tickAll, 60 * 1000); // первый прогон через минуту после старта
 }

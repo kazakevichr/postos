@@ -48,7 +48,7 @@ export default function CreateUserForm() {
       <input className="input" placeholder="Оклад" type="number" value={fixedSalary} onChange={(e) => setFixedSalary(e.target.value)} />
       <select className="input sm:col-span-2" value={role} onChange={(e) => setRole(e.target.value)}>
         <option value="MANAGER">Менеджер партнёров — партнёрский менеджмент</option>
-        <option value="SMM">СММ — только Соц.Сети и Контент-завод</option>
+        <option value="SMM">СММ — только блок СММ: завод, план, статистика</option>
         <option value="PARTNER">Партнёр — видит своё направление целиком, но ничего не меняет</option>
       </select>
       <button className="btn btn-primary sm:col-span-2" disabled={busy} type="submit">

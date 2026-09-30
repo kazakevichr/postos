@@ -20,10 +20,12 @@ export type TopicWay = {
   type: string; // kb | rubrics | list | muscles | order | donor | oracle | forecast | search | brief | manual
   title: string;
   detail: string;
-  fixed: boolean; // зашит в код завода — не переключается
+  fixed: boolean; // сейчас работает источник, зашитый в код завода
+  engine: { title: string; detail: string } | null; // что умеет сам завод — вариант «как у завода»
+  config: any;
 };
 
-const ENGINE: Record<string, Record<string, Omit<TopicWay, "fixed">>> = {
+const ENGINE: Record<string, Record<string, { type: string; title: string; detail: string }>> = {
   [DEFAULT_BRAND]: {
     make: {
       type: "kb", title: "База знаний",
@@ -71,27 +73,38 @@ const ENGINE: Record<string, Record<string, Omit<TopicWay, "fixed">>> = {
 };
 
 export const WAY_NAMES: Record<string, string> = {
-  brief: "По брифу",
+  brief: "По анкете",
   donor: "Доноры",
   search: "Поиск в интернете",
   kb: "База знаний",
   manual: "Вручную",
 };
 
-/** Как формат проекта берёт темы: сперва правда завода, потом настройка. */
+/**
+ * Как формат проекта берёт темы.
+ *
+ * Настройка в Постосе важнее завода: если человек выбрал источник, Постос
+ * сам заранее вписывает темы в план, а завод берёт тему из плана. Не выбрал
+ * — у работающих заводов действует их собственный источник.
+ */
 export async function topicWay(brand: string, kind: string): Promise<TopicWay> {
   const eng = ENGINE[brand]?.[kind];
-  if (eng) return { ...eng, fixed: true };
+  const engine = eng ? { title: eng.title, detail: eng.detail } : null;
   const row = await prisma.topicSource.findUnique({ where: { brand_kind: { brand, kind } } });
+  if (!row && eng) return { ...eng, fixed: true, engine, config: {} };
   const type = row?.type || "brief";
-  return {
-    type,
-    title: WAY_NAMES[type] || type,
-    detail: type === "manual" ? "Темы вписываете сами в контент-плане. Пустые клетки завод не тронет."
-      : type === "brief" ? "Идеи придумываются по анкете проекта."
-      : "Завод берёт идею из источника и пишет своими словами.",
-    fixed: false,
+  let config: any = {};
+  try { config = JSON.parse(row?.config || "{}"); } catch {}
+  const DETAIL: Record<string, string> = {
+    brief: "Постос придумывает идеи по анкете проекта и вписывает их в план заранее.",
+    search: `Постос ищет свежие новости и факты${config.query ? ` по запросу «${config.query}»` : ""} и пишет тему своими словами.`,
+    donor: `Постос смотрит свежие ролики ${(config.donors || []).length || ""} каналов-доноров, берёт идею и пишет своими словами.`.replace("  ", " "),
+    kb: "Постос берёт кусок из файлов базы знаний проекта и делает из него тему.",
+    manual: eng
+      ? "Темы вписываете сами. Пустой день завод заполнит своим источником."
+      : "Темы вписываете сами в контент-плане. Пустые дни завод не трогает.",
   };
+  return { type, title: WAY_NAMES[type] || type, detail: DETAIL[type] || "", fixed: false, engine, config };
 }
 
 export async function topicWays(brand: string, kinds: string[]): Promise<Record<string, TopicWay>> {

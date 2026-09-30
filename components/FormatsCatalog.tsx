@@ -68,7 +68,7 @@ export default function FormatsCatalog() {
     {
       n: 3, title: "Аккаунты публикации", done: Boolean(accounts?.connected),
       text: accounts == null ? "Куда выкладывать готовое" : accounts.connected ? `подключено ${accounts.connected} из ${accounts.total}` : "Ни одной площадки ещё не подключено",
-      action: { label: "Открыть", go: () => router.push("/social") },
+      action: { label: "Открыть", go: () => router.push("/factory") },
     },
   ];
 

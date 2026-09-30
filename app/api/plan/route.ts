@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { socialScope } from "@/lib/access";
 import { factoryBrand } from "@/lib/factory";
-import { SOURCES, STATUS, mondayOf, month, save, setSource, sourcesOf, suggest, week, write } from "@/lib/plan";
+import { SOURCES, STATUS, mondayOf, month, save, setSource, sourcesOf, week, write } from "@/lib/plan";
+import { fillMonth, ideaFor } from "@/lib/topicfill";
+import { panelData } from "@/lib/panel";
 import { topicWays } from "@/lib/topicsource";
 import { prisma } from "@/lib/prisma";
 
@@ -10,6 +12,22 @@ export const dynamic = "force-dynamic";
 // Контент-план проекта: смотреть — весь блок СММ, править — у кого есть право
 // изменения в своём направлении. Проект берётся из выбранного направления,
 // как у всего блока СММ.
+
+// Куда выходит каждый формат — чтобы план можно было смотреть по одному
+// аккаунту. Правда та же, что у пульта: включённые маршруты «формат → канал».
+async function routesOf(brand: string) {
+  try {
+    const d: any = await panelData(brand);
+    const channels = (d.channels || []).map((c: any) => ({ key: c.key, title: c.title, account: c.account, net: c.net }));
+    const byKind: Record<string, string[]> = {};
+    for (const g of d.groups || []) {
+      for (const f of g.formats || []) byKind[f.kind] = (f.routes || []).filter((r: any) => r.on).map((r: any) => r.ch);
+    }
+    return { channels, byKind };
+  } catch {
+    return { channels: [], byKind: {} };
+  }
+}
 
 export async function GET(req: Request) {
   const scope = await socialScope();
@@ -25,7 +43,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     brand, week: monday, month: m || "", cells, sources: await sourcesOf(brand), ways,
     sourceNames: SOURCES, statusNames: STATUS, canEdit: scope.access.canEdit,
-    isOwner: scope.access.isOwner,
+    isOwner: scope.access.isOwner, routes: await routesOf(brand),
   });
 }
 
@@ -57,9 +75,15 @@ export async function POST(req: Request) {
         break;
       case "another": {
         const around = await prisma.planSlot.findMany({ where: { brand }, select: { topic: true }, orderBy: { date: "desc" }, take: 60 });
-        const idea = await suggest(brand, slot, around.map((r) => r.topic));
-        await save(brand, date, slot, { ...idea, source: "brief", origin: "Идея по брифу проекта", text: "", status: "idea" });
+        const idea = await ideaFor(brand, slot, around.map((r) => r.topic));
+        await save(brand, date, slot, { ...idea, text: "", status: "idea" });
         break;
+      }
+      case "fill": {
+        const m = String(b.month || new Date().toISOString().slice(0, 7));
+        const r = await fillMonth(brand, m);
+        const cells = await month(brand, m);
+        return NextResponse.json({ ok: true, ...r, cells, ways: await topicWays(brand, [...new Set(cells.map((c) => c.slot))]) });
       }
       case "write": {
         const row = await prisma.planSlot.findUnique({ where: { brand_date_slot: { brand, date, slot } } });

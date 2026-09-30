@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnketaForm, State, StatusPill, api } from "@/components/formatsUi";
+import { AnketaForm, Choice, SourcePicker, State, StatusPill, api, upload } from "@/components/formatsUi";
 
 // Настройка формата у проекта — по шагам. Каждый шаг сохраняется сам по
 // себе: можно уйти посреди и вернуться, заполненное не пропадёт.
@@ -15,13 +15,6 @@ const STEP: Record<string, { title: string; sub: string }> = {
   schedule: { title: "Расписание", sub: "как часто и куда" },
 };
 
-const WAYS: { type: string; icon: string; title: string; text: string }[] = [
-  { type: "donor", icon: "📺", title: "Доноры", text: "Смотрим чужие ролики вашей темы, берём идею и пишем своими словами." },
-  { type: "search", icon: "🔎", title: "Поиск в интернете", text: "Свежие новости, исследования и факты по заданному запросу." },
-  { type: "kb", icon: "📚", title: "База знаний", text: "Ваши файлы: гайды, статьи, методички. Темы и факты — оттуда." },
-  { type: "brief", icon: "✍", title: "По анкете", text: "Идеи придумываются из анкеты проекта. Самый быстрый старт." },
-  { type: "manual", icon: "🗓", title: "Вручную", text: "Темы вписываете сами в контент-плане. Пустые дни завод не трогает." },
-];
 
 const VOICES = [
   { id: "female_calm", title: "Женский, спокойный", text: "доверительно, без спешки" },
@@ -145,7 +138,10 @@ export default function FormatSetup({ kind }: { kind: string }) {
           )}
 
           {step === "source" && (
-            <SourceStep s={s} kind={kind} busy={busy} onSave={(type, config) => run({ action: "source", type, config }, "source")} onReload={load} />
+            <Section title="Откуда темы" sub="Идею никогда не копируем — берём мысль и пишем своими словами. Тема, вписанная в контент-план вручную, всегда важнее источника.">
+              <SourcePicker current={s.sources[kind]} assets={s.assets} canEdit={s.canEdit} busy={busy === "source"}
+                onSave={(type, config) => run({ action: "source", type, config }, "source")} onReload={load} />
+            </Section>
           )}
 
           {step === "face" && (
@@ -213,18 +209,6 @@ function Section({ title, sub, children }: { title: string; sub?: string; childr
   );
 }
 
-function Choice({ on, icon, title, text, onClick }: { on: boolean; icon: string; title: string; text: string; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className={`text-left flex gap-3 rounded-xl border px-3 py-2.5 transition ${on ? "border-brand-600 ring-2 ring-brand-600/20 bg-brand-50/50" : "hover:border-gray-400"}`}>
-      <span className="text-xl leading-6">{icon}</span>
-      <span>
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="block text-xs text-gray-500">{text}</span>
-      </span>
-    </button>
-  );
-}
 
 function Next({ n, text }: { n: string; text: string }) {
   return (
@@ -235,95 +219,6 @@ function Next({ n, text }: { n: string; text: string }) {
   );
 }
 
-async function upload(role: string, file: File) {
-  const fd = new FormData();
-  fd.append("role", role);
-  fd.append("file", file);
-  const r = await fetch("/api/formats/asset", { method: "POST", body: fd });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || d.error) throw new Error(d.error || `ошибка ${r.status}`);
-  return d.id as string;
-}
-
-function SourceStep({ s, kind, busy, onSave, onReload }: {
-  s: State; kind: string; busy: string; onSave: (type: string, config: any) => void; onReload: () => void;
-}) {
-  const saved = s.sources[kind];
-  const [type, setType] = useState(saved?.type || "");
-  const [donors, setDonors] = useState((saved?.config?.donors || []).join("\n"));
-  const [query, setQuery] = useState(saved?.config?.query || "");
-  const [err, setErr] = useState("");
-  const kb = s.assets.filter((a) => a.role === "kb");
-
-  function save() {
-    setErr("");
-    if (type === "donor") {
-      const list = donors.split(/\s+/).map((x: string) => x.trim()).filter(Boolean);
-      if (!list.length) return setErr("добавьте хотя бы один канал");
-      return onSave(type, { donors: list });
-    }
-    if (type === "search" && !query.trim()) return setErr("напишите, что искать");
-    if (type === "kb" && !kb.length) return setErr("загрузите хотя бы один файл");
-    onSave(type, type === "search" ? { query: query.trim() } : {});
-  }
-
-  async function addFiles(files: FileList | null) {
-    setErr("");
-    try { for (const f of Array.from(files || [])) await upload("kb", f); onReload(); }
-    catch (e: any) { setErr(e.message); }
-  }
-
-  return (
-    <Section title="Откуда темы" sub="Идею завод никогда не копирует — берёт мысль и пишет своими словами. Тема, вписанная в контент-план вручную, всегда важнее источника.">
-      <div className="grid sm:grid-cols-2 gap-2">
-        {WAYS.map((w) => <Choice key={w.type} on={type === w.type} icon={w.icon} title={w.title} text={w.text} onClick={() => setType(w.type)} />)}
-      </div>
-
-      {type === "donor" && (
-        <label className="block mt-5">
-          <div className="text-sm font-medium">Каналы-доноры</div>
-          <textarea className="input mt-1 font-mono text-xs" rows={4} value={donors} onChange={(e) => setDonors(e.target.value)}
-            placeholder={"https://www.youtube.com/@канал\nhttps://www.tiktok.com/@канал"} />
-          <div className="text-[11px] text-gray-400 mt-1">По одной ссылке в строке. Лучше 3–10 каналов вашей темы.</div>
-        </label>
-      )}
-      {type === "search" && (
-        <label className="block mt-5">
-          <div className="text-sm font-medium">Что искать</div>
-          <input className="input mt-1" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Например: новые исследования сна и восстановления" />
-        </label>
-      )}
-      {type === "kb" && (
-        <div className="mt-5 space-y-2">
-          <div className="text-sm font-medium">Файлы базы знаний</div>
-          {kb.map((a) => (
-            <div key={a.id} className="flex items-center justify-between rounded-lg border px-3 py-1.5 text-sm">
-              <span className="truncate">📄 {a.name}</span>
-              {s.canEdit && (
-                <button className="text-xs text-gray-400 hover:text-red-700"
-                  onClick={async () => { await fetch(`/api/formats/asset?id=${a.id}`, { method: "DELETE" }); onReload(); }}>убрать</button>
-              )}
-            </div>
-          ))}
-          {s.canEdit && (
-            <label className="flex items-center justify-center rounded-xl border-2 border-dashed py-5 text-sm text-gray-500 cursor-pointer hover:border-brand-600 hover:text-brand-700">
-              + Загрузить файлы (текст, PDF, Word — до 6 МБ)
-              <input type="file" multiple className="hidden" accept=".txt,.md,.pdf,.doc,.docx,.json,text/*"
-                onChange={(e) => addFiles(e.target.files)} />
-            </label>
-          )}
-        </div>
-      )}
-
-      {err && <p className="text-sm text-red-700 mt-3">{err}</p>}
-      {s.canEdit && type && (
-        <button className="btn btn-primary mt-5" disabled={busy === "source"} onClick={save}>
-          {busy === "source" ? "Сохраняю…" : "Сохранить и дальше"}
-        </button>
-      )}
-    </Section>
-  );
-}
 
 function FaceStep({ s, cfg, busy, onSave, onReload }: {
   s: State; cfg: any; busy: string; onSave: (face: any) => void; onReload: () => void;
@@ -434,7 +329,7 @@ function ScheduleStep({ cfg, profiles, busy, canEdit, onSave }: {
               {profiles.map((p) => <option key={p.username} value={p.username}>{p.title}</option>)}
             </select>
           ) : (
-            <p className="text-sm text-gray-500">Аккаунтов ещё нет — заведите их в <a href="/social" className="text-brand-700 hover:underline">Соц.Сетях</a>. Пока ролики будут приходить на согласование.</p>
+            <p className="text-sm text-gray-500">Аккаунтов ещё нет — заведите их в <a href="/factory" className="text-brand-700 hover:underline">Контент-заводе</a>, блок «Аккаунты». Пока ролики будут приходить на согласование.</p>
           )}
         </div>
         {canEdit && (

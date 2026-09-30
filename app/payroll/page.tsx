@@ -15,7 +15,7 @@ export default async function PayrollPage({
 }) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-  if (session.user.role === "SMM") redirect("/social");
+  if (session.user.role === "SMM") redirect("/factory");
 
   const access = await currentAccess();
   const isOwner = session.user.role === "OWNER";

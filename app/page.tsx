@@ -11,8 +11,8 @@ function currentMonth() {
 export default async function DashboardPage() {
   const access = await currentAccess();
   if (!access) redirect("/login");
-  // Сводка по направлениям. Менеджер живёт на «Зарплате», СММ — в Соц.Сетях.
-  if (access.role === "SMM") redirect("/social");
+  // Сводка по направлениям. Менеджер живёт на «Зарплате», СММ — в Контент-заводе.
+  if (access.role === "SMM") redirect("/factory");
   if (access.role === "MANAGER") redirect("/payroll");
 
   const projects = await prisma.project.findMany({

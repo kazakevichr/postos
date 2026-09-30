@@ -11,7 +11,7 @@ import { briefOf } from "@/lib/briefs";
 // выхода и может поправить любое звено.
 
 export const SOURCES: Record<string, string> = {
-  brief: "По брифу",
+  brief: "По анкете",
   donor: "Доноры",
   search: "Поиск в интернете",
   kb: "База знаний",
@@ -118,6 +118,9 @@ async function cellsFor(brand: string, dates: string[]): Promise<Cell[]> {
   const labels = new Map((kinds as any[]).map((k) => [k.slot, k.label || k.slot]));
   for (const r of rows) {
     if (seen.has(`${r.date}|${r.slot}`)) continue;
+    // «smm:…» — план съёмок из Кабинета СММ: ролики, которые снимает человек.
+    // Та же таблица, но не завод: в плане завода им не место.
+    if (r.slot.startsWith("smm:")) continue;
     out.push({
       date: r.date, slot: r.slot, label: labels.get(r.slot) || r.slot, time: "",
       topic: r.topic, facts: r.facts, source: r.source, origin: r.origin,
@@ -152,7 +155,9 @@ export async function sourcesOf(brand: string): Promise<Record<string, { type: s
 }
 
 export async function setSource(brand: string, kind: string, type: string, config: any) {
-  if (!SOURCES[type]) throw new Error("источник: brief | donor | search | kb | manual");
+  // «Как у завода» — это отсутствие настройки: завод снова берёт темы сам.
+  if (type === "engine") return prisma.topicSource.deleteMany({ where: { brand, kind } });
+  if (!SOURCES[type]) throw new Error("источник: engine | brief | donor | search | kb | manual");
   const value = JSON.stringify(config || {});
   return prisma.topicSource.upsert({
     where: { brand_kind: { brand, kind } },
@@ -175,16 +180,17 @@ const LEN: Record<string, string> = {
   carousel_new: "7 слайдов, каждый с новой строки в виде «Слайд N · текст», до 10 слов на слайд",
 };
 
-async function llm(prompt: string, maxTokens = 1200): Promise<string> {
+export async function llm(prompt: string, maxTokens = 1200, model = "gpt-4o-mini", content?: any[]): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("нет OPENAI_API_KEY");
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.8,
+      model,
+      messages: [{ role: "user", content: content ? [{ type: "text", text: prompt }, ...content] : prompt }],
+      // Модели с поиском не принимают температуру.
+      ...(model.includes("search") ? { web_search_options: { search_context_size: "low" } } : { temperature: 0.8 }),
       max_tokens: maxTokens,
     }),
   });

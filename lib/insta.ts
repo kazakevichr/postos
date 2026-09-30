@@ -311,7 +311,7 @@ export async function runCollect() {
           body: row.note
             ? `Площадка опять отдаёт данные. Заметка «${row.note}» больше не актуальна — снимите её.`
             : "Площадка опять отдаёт данные, сбор пошёл как обычно.",
-          href: "/social",
+          href: "/factory",
           actionText: "К аккаунту",
         }).catch(() => {});
       }

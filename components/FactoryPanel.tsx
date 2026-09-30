@@ -11,6 +11,7 @@
 // авто · вручную · пауза · выкл · нельзя.
 import { useEffect, useState } from "react";
 import ProjectFormats from "@/components/ProjectFormats";
+import FactoryAccounts from "@/components/FactoryAccounts";
 
 const DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const ALL = [1, 2, 3, 4, 5, 6, 7];
@@ -60,9 +61,6 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   const [tab, setTab] = useState<"today" | "week">("today");
   const [openKind, setOpenKind] = useState("");
   const [draft, setDraft] = useState<{ mode: string; slots: Slot[] } | null>(null);
-  const [editCh, setEditCh] = useState("");
-  const [addCh, setAddCh] = useState(false);
-  const [showArchive, setShowArchive] = useState(false);
   const [openScript, setOpenScript] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
@@ -78,7 +76,15 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   }, []);
 
   if (!data) return null;
-  if (!data.known) return <ProjectFormats label={data.label} />;
+  if (!data.known) {
+    return (
+      <div className="space-y-4 mb-4">
+        <ProjectFormats label={data.label} />
+        <FactoryAccounts brand={data.brand} channels={[]} archived={[]} canManage={canManage}
+          publisher="завод" bot={data.bot} busy={busy} put={put} togglePause={() => {}} />
+      </div>
+    );
+  }
 
   const { channels, archived, groups, today, now, caps } = data;
   // Чего этот завод пока не слушается. Пустая строка — слушается, и тумблер
@@ -241,7 +247,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
         <div className={`rounded-xl border p-3 ${channels.length && autoCount < channels.length ? "bg-yellow-50 border-yellow-200" : "bg-white border-gray-200"}`}>
           <div className="text-[11px] uppercase tracking-wide text-gray-400">Автопостинг</div>
           <div className="font-semibold mt-0.5">
-            {channels.length ? `${autoCount} из ${channels.length} каналов` : "каналов нет"}
+            {channels.length ? `${autoCount} из ${channels.length} аккаунтов` : "аккаунтов нет"}
           </div>
           <div className="text-xs text-gray-500">
             {channels.length ? `выкладывает ${caps?.publisher || "машина"}; остальные — вручную или пауза` : "площадок у бренда пока нет"}
@@ -346,154 +352,9 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
         )}
       </div>
 
-      {/* ── Каналы ─────────────────────────────────────────────────────── */}
-      <div className="card">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-          <h2 className="font-semibold">Каналы</h2>
-          <span className="text-xs text-gray-400">аккаунт можно заменить или убрать в архив — маршруты останутся</span>
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {channels.map((c: any) => (
-            <div key={c.key} className={`border rounded-lg p-3 ${c.paused ? "bg-white border-dashed" : "bg-gray-50"}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <b className="text-sm">{c.title}</b>
-                  <div className="text-sm text-gray-600 truncate">{c.account || "аккаунт не указан"}</div>
-                </div>
-                <span className={`text-[11px] px-2 py-px rounded-full border shrink-0 ${CHIP[c.state]}`}>{c.word}</span>
-              </div>
-
-              {/* Два разных вопроса, и подпись у каждого читается как ответ:
-                  выпускаем ли мы сюда вообще — и кто нажимает «опубликовать».
-                  Раньше рядом с выключенным тумблером стояло «аккаунт
-                  подключён», и было непонятно, это состояние или название. */}
-              <div className="mt-2 divide-y border-y">
-                <div className="flex items-center justify-between gap-2 py-1.5">
-                  <div className="text-xs">
-                    <div className="text-gray-800">{c.paused ? "Выход закрыт" : "Выход открыт"}</div>
-                    <div className="text-gray-500">
-                      {c.paused ? "сюда ничего не уходит" : "ролики для этого канала выпускаем"}
-                    </div>
-                  </div>
-                  <Switch on={!c.paused} tag={`ch-${c.key}`} label={`Выход в канал ${c.title}`}
-                    onClick={() => togglePause(c.key, c.paused)} />
-                </div>
-                <div className="flex items-center justify-between gap-2 py-1.5">
-                  <div className="text-xs">
-                    <div className="text-gray-800">
-                      {c.mode === "manual" ? "Аккаунт не подключён" : "Аккаунт подключён"}
-                    </div>
-                    <div className="text-gray-500">
-                      {c.mode === "manual"
-                        ? "ролик приходит в бот, выкладываете вы"
-                        : `выкладывает ${caps?.publisher || "машина"}`}
-                    </div>
-                  </div>
-                  <Switch on={c.mode !== "manual"} tag={`conn-${c.key}`}
-                    label={`Аккаунт подключён: ${c.title}`}
-                    onClick={() => put({ channel: c.key, connected: c.mode === "manual" }, `conn-${c.key}`)} />
-                </div>
-              </div>
-              {c.note && <div className="text-xs text-gray-500 mt-1">{c.note}</div>}
-
-              {canManage && (
-                <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <button className="text-xs text-brand-700" onClick={() => setEditCh(editCh === c.key ? "" : c.key)}>
-                    {editCh === c.key ? "свернуть" : "заменить аккаунт"}
-                  </button>
-                  <button className="text-xs text-gray-500 hover:text-red-600"
-                    onClick={() => put({ channel: c.key, archived: true }, `arch-${c.key}`)}>
-                    в архив
-                  </button>
-                </div>
-              )}
-
-              {editCh === c.key && canManage && (
-                <form
-                  className="mt-2 flex flex-wrap gap-2"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    const f = new FormData(e.currentTarget as HTMLFormElement);
-                    if (await put({ channel: c.key, account: f.get("account") }, `c-${c.key}`)) setEditCh("");
-                  }}
-                >
-                  <input name="account" defaultValue={c.account} className="input text-sm" placeholder="имя нового аккаунта" />
-                  <button className="btn btn-primary text-xs" type="submit">Заменить</button>
-                  <p className="text-xs text-gray-500 basis-full">
-                    Новый аккаунт считается неподключённым: ролики будут приходить в бот, пока вы не отметите
-                    подключение.
-                  </p>
-                </form>
-              )}
-            </div>
-          ))}
-
-          {!channels.length && (
-            <p className="text-sm text-gray-500 border border-dashed rounded-lg p-3 bg-gray-50 sm:col-span-2 lg:col-span-3">
-              Каналов нет: готовые ролики уходят в бот {data.bot}, выкладываете вы.
-            </p>
-          )}
-        </div>
-
-        {canManage && (
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button className="btn btn-secondary text-sm" onClick={() => setAddCh(!addCh)}>
-              {addCh ? "Отменить" : "＋ Добавить канал"}
-            </button>
-            {archived.length > 0 && (
-              <button className="text-sm text-gray-500" onClick={() => setShowArchive(!showArchive)}>
-                Архив ({archived.length})
-              </button>
-            )}
-          </div>
-        )}
-
-        {addCh && canManage && (
-          <form
-            className="mt-3 flex flex-wrap gap-2 items-start"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget as HTMLFormElement);
-              const ok = await put({ newChannel: { title: f.get("title"), net: f.get("net"), account: f.get("account") } }, "newCh");
-              if (ok) setAddCh(false);
-            }}
-          >
-            <input name="title" className="input text-sm max-w-[220px]" placeholder="название, например Instagram · новый" />
-            <select name="net" className="input text-sm max-w-[140px]" defaultValue="IG">
-              <option value="IG">Instagram</option>
-              <option value="YT">YouTube</option>
-              <option value="TT">TikTok</option>
-              <option value="TG">Telegram</option>
-            </select>
-            <input name="account" className="input text-sm max-w-[200px]" placeholder="имя аккаунта" />
-            <button className="btn btn-primary text-sm" type="submit">Добавить</button>
-            <p className="text-xs text-gray-500 basis-full">
-              Новый канал появляется неподключённым: ролики идут в бот, пока вы не отметите подключение.
-            </p>
-          </form>
-        )}
-
-        {showArchive && archived.length > 0 && (
-          <div className="mt-3 border-t pt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {archived.map((c: any) => (
-              <div key={c.key} className="border rounded-lg p-3 bg-white text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <b>{c.title}</b>
-                  <span className="text-[11px] px-2 py-px rounded-full border bg-gray-50 text-gray-500">в архиве</span>
-                </div>
-                <div className="text-gray-600">{c.account}</div>
-                {canManage && (
-                  <button className="text-xs text-brand-700 mt-1"
-                    onClick={() => put({ channel: c.key, archived: false }, `un-${c.key}`)}>
-                    вернуть из архива
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ── Аккаунты: каналы пульта, статистика и автопубликация — одной карточкой ── */}
+      <FactoryAccounts brand={data.brand} channels={channels} archived={archived} canManage={canManage}
+        publisher={caps?.publisher || "машина"} bot={data.bot} busy={busy} put={put} togglePause={togglePause} />
 
       {/* ── Форматы ────────────────────────────────────────────────────── */}
       <div className="card">
@@ -648,7 +509,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
             </table>
             <p className="text-xs text-gray-400 mt-2">
               В шапке видно, как выходит каждый канал: авто, вручную или пауза. Пауза канала и подключение аккаунта
-              меняются в блоке «Каналы».
+              меняются в блоке «Аккаунты».
             </p>
           </div>
         )}
@@ -681,7 +542,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                     <p className="text-xs text-gray-400 mt-1.5">
                       Если в <a href="/plan" className="text-brand-700 hover:underline">контент-плане</a> на этот день
                       вписана тема — завод возьмёт её, а источник не тронет.
-                      {f.topics.fixed && " Источник задан в коде завода и переключится, когда формат переедет на новый завод."}
+                      {" "}Сменить источник — в <a href="/plan" className="text-brand-700 hover:underline">контент-плане</a>, нажав на формат.
                     </p>
                   </section>
                 )}

@@ -96,7 +96,7 @@ async function checkAccounts() {
       key, kind: "meta", level: "crit",
       title: "Мета не отдаёт ни одного аккаунта",
       body: `Все ${alive.length} перестали читаться разом — так выглядит истёкший или отозванный META_TOKEN, а не блокировка аккаунтов. Долгоживущий токен Графа живёт 60 дней.`,
-      href: "/social", actionText: "К аккаунтам", roles: ["OWNER"],
+      href: "/factory", actionText: "К аккаунтам", roles: ["OWNER"],
     });
   } else {
     for (const r of broken) {
@@ -111,7 +111,7 @@ async function checkAccounts() {
           `Не читается ${plural(r.failCount, "сбор", "сбора", "сборов")} подряд.`,
           r.lastError ? `Последний ответ Меты: ${r.lastError.slice(0, 200)}` : "Ответ площадки не записан.",
         ].join(" "),
-        href: "/social", actionText: "К аккаунту",
+        href: "/factory", actionText: "К аккаунту",
       });
     }
   }
