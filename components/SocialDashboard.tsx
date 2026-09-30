@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PeriodPicker, { Range, rangeDays, rangeFor } from "@/components/PeriodPicker";
 import { BRAND_NAMES } from "@/lib/brands";
+import PublishAccounts from "@/components/PublishAccounts";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "📸 Инстаграм",
@@ -340,6 +341,10 @@ export default function SocialDashboard({
         )}
       </div>
       {note && <p className="text-sm text-gray-500">{note}</p>}
+
+      {/* Аккаунты публикации — первым блоком: подключить новый аккаунт или
+          площадку нужно чаще, чем листать статистику. */}
+      <PublishAccounts brands={only} />
 
       <div className="flex gap-1 border-b pl-0.5">
         <button
