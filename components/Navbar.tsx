@@ -91,6 +91,7 @@ export default async function Navbar() {
   const smmGroup = [
     groupTitle("СММ"),
     navLink("/social", "Соц.Сети"),
+    navLink("/plan", "Контент-план"),
     navLink("/analytics", "Нейро-аналитика"),
     navLink("/factory", "Контент-завод"),
     navLink("/cabinet", "Кабинет СММ"),

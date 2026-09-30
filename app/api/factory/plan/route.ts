@@ -28,5 +28,13 @@ export async function GET(req: Request) {
   const row = rows.find((r) => r.brand === brand) ?? (guess.length === 1 ? guess[0] : null);
 
   if (!row || !row.topic.trim()) return NextResponse.json({});
-  return NextResponse.json({ topic: row.topic, facts: row.facts });
+  // Утверждённый текст едет заводу вместе с темой: человек уже прочёл его в
+  // контент-плане, и сочинять заново значит выпустить не то, что одобрено.
+  // Старые заводы лишних полей не читают — для них ничего не меняется.
+  return NextResponse.json({
+    topic: row.topic,
+    facts: row.facts,
+    ...(row.status === "ok" && row.text.trim() ? { text: row.text } : {}),
+    status: row.status,
+  });
 }

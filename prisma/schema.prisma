@@ -354,6 +354,17 @@ model PlanSlot {
   topic String @default("")
   facts String @default("")
 
+  // КОНТЕНТ-ПЛАН (30.09.2026). Клетка плана — это не только тема, а весь путь
+  // до ролика: откуда пришла идея, какой текст по ней написан и утверждён ли
+  // он. Человек видит и правит это до выхода, а не узнаёт тему из готового
+  // ролика. Старые заводы читают только topic и facts — им ничего не меняется.
+  source    String   @default("") // brief | donor | search | kb | manual
+  origin    String   @default("") // откуда именно: ссылка донора, файл, запрос
+  text      String   @default("") // текст, который пойдёт в ролик
+  status    String   @default("") // "" | idea | text | ok | out
+  account   String   @default("") // аккаунт публикации; пусто — основной
+  updatedAt DateTime @default(now()) @updatedAt
+
   @@unique([brand, date, slot])
 }
 
@@ -390,17 +401,17 @@ model FactoryJob {
 // У СуперФита пауза живёт в матрице маршрутов (RouteFlag `площадка|*`), и
 // второго хранилища ей не заводим: две правды разъезжаются на третий день.
 model Channel {
-  id        String   @id @default(cuid())
-  brand     String
-  key       String // ig_main | ig_woman | ig_man | youtube | tiktok | …
-  title     String
-  net       String // IG | YT | TT
-  account   String   @default("")
-  mode      String   @default("manual")
-  paused    Boolean  @default(false)
-  note      String   @default("")
-  archived  Boolean  @default(false)
-  at        DateTime @updatedAt
+  id       String   @id @default(cuid())
+  brand    String
+  key      String // ig_main | ig_woman | ig_man | youtube | tiktok | …
+  title    String
+  net      String // IG | YT | TT
+  account  String   @default("")
+  mode     String   @default("manual")
+  paused   Boolean  @default(false)
+  note     String   @default("")
+  archived Boolean  @default(false)
+  at       DateTime @updatedAt
 
   @@unique([brand, key])
 }
@@ -685,4 +696,18 @@ model NoticeRead {
   notice Notice @relation(fields: [noticeKey], references: [key], onDelete: Cascade)
 
   @@id([noticeKey, userId])
+}
+
+// Откуда формат проекта берёт темы. Путь у всех источников один: взять идею,
+// переписать своими словами, написать текст. Разница только в том, где идея
+// лежит: у донора, в интернете, в загруженных файлах или в голове человека.
+model TopicSource {
+  id     Int      @id @default(autoincrement())
+  brand  String
+  kind   String // формат: make | avatar | carousel | …
+  type   String   @default("brief") // brief | donor | search | kb | manual
+  config String   @default("{}") // ссылки доноров, поисковый запрос, файлы
+  at     DateTime @default(now()) @updatedAt
+
+  @@unique([brand, kind])
 }
