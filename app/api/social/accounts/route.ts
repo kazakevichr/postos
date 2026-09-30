@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { socialScope } from "@/lib/access";
-import { accounts, addProfile, connectLink, upBrands } from "@/lib/uploadpost";
+import { accounts, addProfile, connectLink, upKey } from "@/lib/uploadpost";
+import { ALL_BRAND_KEYS } from "@/lib/brands";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +9,11 @@ export const dynamic = "force-dynamic";
 // ссылку на подключение соцсетей. Видят и меняют только проекты в рамках
 // направления человека — чужие аккаунты не отдаём и не заводим.
 
+// Проекты, чьи аккаунты человеку видны: его направления, а у владельца —
+// все. Показываем только те, для которых есть ключ, — то есть при общем
+// ключе все, кроме Оракла.
 function allowed(brands: string[] | null) {
-  const configured = upBrands();
-  return brands ? configured.filter((b) => brands.includes(b)) : configured;
+  return (brands ?? ALL_BRAND_KEYS).filter((b) => upKey(b));
 }
 
 export async function GET() {

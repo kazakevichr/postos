@@ -19,12 +19,17 @@ import { prisma } from "@/lib/prisma";
 // таблицы не нужно: источник правды — сам upload-post, а человеческие
 // названия («Мужской») лежат в Setting.
 //
-// КЛЮЧИ ПО БРЕНДАМ. У Оракла свой аккаунт upload-post с давних пор, ключ в
-// UPLOAD_POST_KEY — его не трогаем, им собирается аналитика TikTok. Остальные
-// — парами «бренд:ключ» в UPLOAD_POST_KEYS, тем же правилом, что
-// FACTORY_KEYS: без кавычек и скобок, через запятую. Один ключ на несколько
-// брендов — нормально: у СуперФита и MoneyBall может быть общий аккаунт, их
-// профили всё равно не смешаются, потому что различаются именем.
+// ОДИН КЛЮЧ НА ВСЕ ПРОЕКТЫ. Все проекты живут в одном аккаунте upload-post
+// (UPLOAD_POST_MAIN_KEY) и различаются только именами профилей. Новый проект
+// поэтому не требует ничего: ни переменной, ни перезапуска — блок появляется
+// у него сам. Ключ на проект держать было бы ошибкой: каждый новый бренд
+// превращался бы в правку настроек сервера.
+//
+// Исключения — только осознанные. Проект со СВОИМ аккаунтом upload-post
+// вписывается в UPLOAD_POST_KEYS парой «проект:ключ». Оракл сюда не
+// попадает вовсе: у него чужой аккаунт (партнёра), его ключ UPLOAD_POST_KEY
+// нужен только для аналитики TikTok, и заводить профили в чужом аккаунте из
+// нашей панели нельзя.
 
 const API = "https://api.upload-post.com/api";
 
@@ -60,12 +65,8 @@ function keyMap(): Record<string, string> {
 export function upKey(brand: string): string {
   const own = keyMap()[brand];
   if (own) return own;
-  return brand === "oracle" ? process.env.UPLOAD_POST_KEY || "" : "";
-}
-
-/** Бренды, для которых подключение из Постоса настроено. */
-export function upBrands(): string[] {
-  return Object.keys(keyMap());
+  if (brand === "oracle" || brand === "other") return "";
+  return (process.env.UPLOAD_POST_MAIN_KEY || "").trim();
 }
 
 const belongs = (brand: string, username: string) =>
