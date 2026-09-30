@@ -318,6 +318,14 @@ export async function panelData(brand: string) {
     brand === MONEYBALL ? await moneyballPanel(now)
     : brand === DEFAULT_BRAND ? await superfitPanel(now)
     : null;
+  // Откуда каждый формат берёт темы — правда завода, чтобы карточка формата
+  // не показывала выдуманный источник.
+  if (body?.groups) {
+    const { topicWay } = await import("@/lib/topicsource");
+    for (const g of body.groups as any[]) {
+      for (const f of g.formats || []) f.topics = await topicWay(brand, f.kind);
+    }
+  }
   return {
     brand, label: brandLabel(brand), tz: "Europe/Moscow", now, bot: DELIVERY_BOT,
     // Кто решает, когда производить. У MoneyBall выбора нет — он построен

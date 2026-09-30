@@ -157,8 +157,8 @@ export default function FactoryDashboard({
           <h1 className="text-xl font-bold mb-1">Контент-завод</h1>
           <p className="text-sm text-gray-500">
             {projectName
-              ? `План тем и статистика производства · ${projectName}`
-              : "План тем и статистика производства"}
+              ? `Как работает завод: форматы, расписание, каналы · ${projectName}`
+              : "Как работает завод: форматы, расписание, каналы"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
@@ -176,7 +176,7 @@ export default function FactoryDashboard({
             </div>
           )}
           <button className={`px-3 py-1.5 rounded-lg text-sm ${tab === "plan" ? "bg-brand-600 text-white" : "bg-white border hover:bg-gray-50"}`} onClick={() => setTab("plan")}>
-            Контент-план
+            Пульт
           </button>
           <button className={`px-3 py-1.5 rounded-lg text-sm ${tab === "stats" ? "bg-brand-600 text-white" : "bg-white border hover:bg-gray-50"}`} onClick={() => setTab("stats")}>
             Статистика
@@ -190,69 +190,14 @@ export default function FactoryDashboard({
           когда надо разом пройтись по всем клеткам. */}
       {tab === "plan" && <FactoryPanel canManage={canManage} />}
 
-      {tab === "plan" && plan && (
-        <div className="card overflow-x-auto">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <button className="btn" onClick={() => setMonth(monthShift(month, -1))}>←</button>
-              <span className="font-semibold">
-                {new Date(month + "-01").toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}
-              </span>
-              <button className="btn" onClick={() => setMonth(monthShift(month, 1))}>→</button>
-            </div>
-            {/* Генерация есть у каждого завода со своим брифом: MoneyBall
-                получает темы Персонажа по рубрикам недели, СуперФит — по
-                своим гайдам. Форматы, которые берут тему сами (Новости,
-                Прогнозы), ручка не трогает. */}
-            {canManage && (
-              <button className="btn btn-primary" onClick={generate} disabled={busy}>
-                {busy ? "Генерирую…" : "✨ Сгенерировать темы на месяц"}
-              </button>
-            )}
+      {tab === "plan" && (
+        <a href="/plan" className="card flex items-center justify-between gap-3 hover:bg-gray-50">
+          <div>
+            <h2 className="font-semibold">Темы и тексты — в контент-плане</h2>
+            <p className="text-xs text-gray-400">Что и о чём выходит по дням: тема, откуда она, текст, утверждение. Генерация тем на месяц — там же.</p>
           </div>
-          {/* key по бренду: поля тем неуправляемые (defaultValue), а столбец make
-              есть у двух заводов — без пересоздания в Персонаже MoneyBall
-              осталась бы тема СуперФита. */}
-          <table key={plan.brand} className="w-full text-sm border-collapse min-w-[900px]">
-            <thead>
-              <tr className="text-left text-gray-500">
-                <th className="p-2 w-20">Дата</th>
-                {(plan.slots || []).map((s: any) => (
-                  <th key={s.slot} className="p-2">
-                    {s.label} <span className="font-normal">{s.active ? `· ${s.time} МСК` : "· ❄️"}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(plan.dates || []).map((date: string) => (
-                <tr key={date} className={`border-t ${date === today ? "bg-blue-50/50" : ""} ${date < today ? "opacity-60" : ""}`}>
-                  <td className="p-2 whitespace-nowrap text-gray-500">
-                    {new Date(date + "T00:00:00").toLocaleDateString("ru-RU", { day: "numeric", weekday: "short" })}
-                  </td>
-                  {(plan.slots || []).map((s: any) => (
-                    <td key={s.slot} className="p-1 align-top">
-                      {/* Формат, который берёт тему сам (Новости, Прогнозы MoneyBall),
-                          вписанную тему проигнорирует — поле только показывает,
-                          что вышло. */}
-                      <textarea
-                        rows={2}
-                        readOnly={!canManage || s.fromPlan === false}
-                        defaultValue={cell(date, s.slot)?.topic || ""}
-                        placeholder={s.fromPlan === false ? "тему берёт сам" : s.active ? "тема…" : "заморожен"}
-                        title={cell(date, s.slot)?.facts || ""}
-                        onBlur={(e) => canManage && saveCell(date, s.slot, e.target.value)}
-                        className={`w-full text-xs border rounded-md p-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-brand-500 ${
-                          s.active ? "bg-white" : "bg-gray-50"
-                        }`}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <span className="text-brand-700 text-sm whitespace-nowrap">Открыть →</span>
+        </a>
       )}
 
       {tab === "stats" && (

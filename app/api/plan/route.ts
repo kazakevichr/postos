@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { socialScope } from "@/lib/access";
 import { factoryBrand } from "@/lib/factory";
-import { SOURCES, STATUS, mondayOf, save, setSource, sourcesOf, suggest, week, write } from "@/lib/plan";
+import { SOURCES, STATUS, mondayOf, month, save, setSource, sourcesOf, suggest, week, write } from "@/lib/plan";
+import { topicWays } from "@/lib/topicsource";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +16,16 @@ export async function GET(req: Request) {
   if (!scope) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const brand = factoryBrand(scope);
   const u = new URL(req.url);
+  const m = u.searchParams.get("month");
   const monday = mondayOf(u.searchParams.get("week") || new Date().toISOString().slice(0, 10));
-  const [cells, sources] = await Promise.all([week(brand, monday), sourcesOf(brand)]);
+  const cells = m ? await month(brand, m) : await week(brand, monday);
+  // Откуда каждый формат берёт темы — правда завода: пустая клетка говорит,
+  // чем её заполнят, а не выдумывает «по брифу».
+  const ways = await topicWays(brand, [...new Set(cells.map((c) => c.slot))]);
   return NextResponse.json({
-    brand, week: monday, cells, sources,
+    brand, week: monday, month: m || "", cells, sources: await sourcesOf(brand), ways,
     sourceNames: SOURCES, statusNames: STATUS, canEdit: scope.access.canEdit,
+    isOwner: scope.access.isOwner,
   });
 }
 
@@ -72,5 +78,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 400 });
   }
   const monday = mondayOf(date || new Date().toISOString().slice(0, 10));
-  return NextResponse.json({ ok: true, cells: await week(brand, monday), sources: await sourcesOf(brand) });
+  const cells = await week(brand, monday);
+  return NextResponse.json({ ok: true, cells, sources: await sourcesOf(brand),
+    ways: await topicWays(brand, [...new Set(cells.map((c) => c.slot))]) });
 }

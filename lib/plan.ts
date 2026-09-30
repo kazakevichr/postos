@@ -66,7 +66,20 @@ export function weekDates(monday: string): string[] {
  * расписания не теряется: его просто показываем как есть.
  */
 export async function week(brand: string, monday: string): Promise<Cell[]> {
-  const dates = weekDates(monday);
+  return cellsFor(brand, weekDates(monday));
+}
+
+export function monthDates(month: string): string[] {
+  const [y, m] = month.split("-").map(Number);
+  const n = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return Array.from({ length: n }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
+}
+
+export async function month(brand: string, month: string): Promise<Cell[]> {
+  return cellsFor(brand, monthDates(month));
+}
+
+async function cellsFor(brand: string, dates: string[]): Promise<Cell[]> {
   const [kinds, sched, rows] = await Promise.all([
     planSlots(brand).catch(() => [] as any[]),
     scheduleOf(brand).catch(() => ({} as Record<string, any>)),

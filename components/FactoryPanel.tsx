@@ -20,6 +20,7 @@ type Slot = { days: number[]; time: string };
 type Route = { ch: string; on: boolean; state: string; word: string };
 type Format = {
   kind: string; label: string; note: string; mode: string;
+  topics?: { type: string; title: string; detail: string; fixed: boolean };
   slots: Slot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
   routes: Route[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
@@ -78,9 +79,12 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   if (!data) return null;
   if (!data.known) {
     return (
-      <div className="card mb-4 text-sm text-gray-500">
-        Завод «{data.label}» публикует сам и о своих планах Постосу пока не сообщает. Журнал и кошельки видны как
-        раньше; пульт появится, когда завод начнёт брать заказы.
+      <div className="card mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold">У проекта «{data.label}» пока нет форматов</div>
+          <p className="text-sm text-gray-500">Выберите, какой контент будет делать завод, — у каждого формата есть пример готового результата.</p>
+        </div>
+        <a href="/formats" className="btn btn-primary">+ Добавить формат</a>
       </div>
     );
   }
@@ -503,7 +507,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
       {/* ── Форматы ────────────────────────────────────────────────────── */}
       <div className="card">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-          <h2 className="font-semibold">Форматы</h2>
+          <h2 className="font-semibold">Форматы <a href="/formats" className="ml-2 text-sm font-normal text-brand-700 hover:underline">+ Добавить формат</a></h2>
           <div className="flex gap-1 bg-gray-50 border rounded-lg p-0.5">
             {(["rows", "table"] as const).map((v) => (
               <button key={v} onClick={() => setView(v)}
@@ -676,6 +680,20 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
               </div>
 
               <div className="p-4 space-y-4 overflow-y-auto flex-1 text-sm">
+                {f.topics && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Откуда темы</h3>
+                    <div className="rounded-lg border bg-gray-50 px-3 py-2.5">
+                      <div className="font-medium">{f.topics.title}</div>
+                      <p className="text-gray-500 mt-0.5">{f.topics.detail}</p>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      Если в <a href="/plan" className="text-brand-700 hover:underline">контент-плане</a> на этот день
+                      вписана тема — завод возьмёт её, а источник не тронет.
+                      {f.topics.fixed && " Источник задан в коде завода и переключится, когда формат переедет на новый завод."}
+                    </p>
+                  </section>
+                )}
                 <section>
                   <h3 className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Когда производить</h3>
                   {f.canSchedule ? (
