@@ -2,21 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-// Аккаунты проекта — один блок вместо трёх.
+// Аккаунты проекта — один блок, одна иерархия.
 //
-// Раньше одно и то же жило в трёх местах: «Каналы» пульта (выпускаем ли сюда
-// и кто выкладывает), карточки «Соц.Сетей» (подписчики, архив, заметка) и
-// «Аккаунты публикации» upload-post (подключение для автопостинга). Человек
-// видел TikTok @superfit05 трижды и не понимал, где главный. Теперь аккаунт —
-// одна карточка, и на ней всё: цифры, выход, кто выкладывает, автопостинг,
-// архив.
+//   АККАУНТ (общий, мужской, под язык)
+//     └ соцсети: TikTok, YouTube, Instagram, Telegram
+//         └ по каждой: подключена ли, выпускаем ли сюда, кто выкладывает
 //
-// Карточки собираются из двух источников: канал пульта (куда завод выпускает)
-// и аккаунт статистики (что собирает сбор). Совпадают по площадке и имени.
-// Аккаунт, который есть только в статистике, тоже показываем — с пометкой,
-// что завод туда не выкладывает.
+// Раньше это было три разных вещи: «канал» пульта (куда завод выпускает и
+// кто выкладывает), карточка статистики (подписчики, архив) и профиль
+// upload-post (подключение соцсетей для автопубликации). Человек видел одну
+// и ту же соцсеть по три раза. Теперь аккаунт — это профиль upload-post, его
+// соцсети — строки внутри, а канал пульта и цифры статистики приклеены к
+// своей строке.
+//
+// Порядок работы такой, как его описал Роман: завёл аккаунт → подключил
+// соцсеть → решил, выкладывает завод сам или присылает ролик в бот.
 
-type Channel = { key: string; title: string; net: string; account: string; mode: string; paused: boolean; note: string; state: string; word: string };
+type Channel = { key: string; title: string; net: string; account: string; profile: string; mode: string; paused: boolean; note: string; state: string; word: string };
 type Stat = {
   id: string; platform: string; brand: string; username: string; title: string; avatar: string | null; url: string;
   followers: number | null; history: any[]; archived: boolean; archiveNote: string; note: string;
@@ -28,28 +30,27 @@ type Prof = { username: string; title: string; main: boolean; platforms: Conn[] 
 type Up = { brand: string; plan?: string; limit?: number | null; used?: number; profiles?: Prof[]; error?: string };
 
 const NET: Record<string, string> = { IG: "instagram", YT: "youtube", TT: "tiktok", TG: "telegram" };
+const NET_OF: Record<string, string> = { instagram: "IG", youtube: "YT", tiktok: "TT", telegram: "TG" };
 const ICON: Record<string, string> = { instagram: "📸", youtube: "📺", tiktok: "🎵", telegram: "✈️" };
 const NAME: Record<string, string> = { instagram: "Instagram", youtube: "YouTube", tiktok: "TikTok", telegram: "Telegram" };
-const CHIP: Record<string, string> = {
-  auto: "bg-green-100 text-green-800 border-green-200",
-  manual: "bg-yellow-50 text-yellow-800 border-yellow-200",
-  pause: "bg-white text-gray-500 border-gray-300 border-dashed",
-  stats: "bg-gray-50 text-gray-500 border-gray-200",
-};
+const UP_PLATFORMS = ["tiktok", "youtube", "instagram"];
 
 const norm = (s: string) => String(s || "").toLowerCase().replace(/^@/, "").replace(/\s+/g, "");
 const fmt = (n: any) => (n == null ? "—" : Number(n).toLocaleString("ru-RU"));
 
-type Card = { key: string; platform: string; ch: Channel | null; st: Stat | null; up: { profile: Prof; conn: Conn } | null };
+type Row = {
+  key: string; platform: string;
+  ch: Channel | null; st: Stat | null; conn: Conn | null;
+};
+type Group = { prof: Prof | null; title: string; username: string; main: boolean; rows: Row[] };
 
 export default function FactoryAccounts({
-  brand, channels, archived, canManage, publisher, bot, busy, put, togglePause,
+  brand, channels, archived, canManage, bot, busy, put, togglePause,
 }: {
   brand: string;
   channels: Channel[];
   archived: Channel[];
   canManage: boolean;
-  publisher: string;
   bot: string;
   busy: string;
   put: (body: any, tag: string) => Promise<boolean>;
@@ -59,14 +60,14 @@ export default function FactoryAccounts({
   const [up, setUp] = useState<Up | null>(null);
   const [mine, setMine] = useState("");
   const [note, setNote] = useState("");
+  const [menu, setMenu] = useState("");
   const [asking, setAsking] = useState("");
   const [noting, setNoting] = useState("");
   const [noteText, setNoteText] = useState("");
   const [editing, setEditing] = useState("");
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState("");
   const [showArch, setShowArch] = useState(false);
-  const [showUp, setShowUp] = useState(false);
-  const [profTitle, setProfTitle] = useState("");
+  const [newAcc, setNewAcc] = useState<string | null>(null);
 
   async function loadStats() {
     const d = await fetch("/api/social/stats").then((r) => r.json()).catch(() => null);
@@ -78,36 +79,54 @@ export default function FactoryAccounts({
   }
   useEffect(() => { loadStats(); loadUp(); }, [brand]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    // Вернулись со страницы подключения upload-post — перечитываем.
+    // Вернулись со страницы подключения соцсетей — перечитываем.
     const again = () => document.visibilityState === "visible" && loadUp();
     document.addEventListener("visibilitychange", again);
     return () => document.removeEventListener("visibilitychange", again);
   }, [brand]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const conns = useMemo(
-    () => (up?.profiles || []).flatMap((p) => p.platforms.filter((c) => c.connected).map((c) => ({ profile: p, conn: c }))),
-    [up],
-  );
+  const profiles = useMemo(() => (up && !up.error ? up.profiles || [] : []), [up]);
+  const same = (a: string, b: string[]) => Boolean(a) && b.some((x) => x && norm(x) === norm(a));
 
-  const same = (platform: string, a: string, b: string[]) => b.some((x) => x && norm(x) === norm(a));
-
-  const cards: Card[] = useMemo(() => {
+  const groups: Group[] = useMemo(() => {
     const live = stats.filter((s) => !s.archived);
-    const used = new Set<string>();
-    const out: Card[] = channels.map((ch) => {
+    const usedStat = new Set<string>();
+    const main = profiles.find((p) => p.main) || profiles[0] || null;
+    const base: Group[] = profiles.length
+      ? profiles.map((p) => ({ prof: p, title: p.title, username: p.username, main: p.main, rows: [] as Row[] }))
+      : [{ prof: null, title: "Аккаунт проекта", username: "", main: true, rows: [] as Row[] }];
+    const groupOf = (profile: string) =>
+      base.find((g) => g.username && g.username === profile) || base.find((g) => g.username === main?.username) || base[0];
+
+    for (const ch of channels) {
       const platform = NET[ch.net] || ch.net;
-      const st = live.find((s) => s.platform === platform && same(platform, ch.account, [s.username, s.title])) || null;
-      if (st) used.add(st.id);
-      const upc = conns.find((x) => x.conn.platform === platform && ch.account && same(platform, ch.account, [x.conn.handle])) || null;
-      return { key: `ch:${ch.key}`, platform, ch, st, up: upc };
-    });
-    for (const st of live) {
-      if (used.has(st.id)) continue;
-      const upc = conns.find((x) => x.conn.platform === st.platform && same(st.platform, x.conn.handle, [st.username, st.title])) || null;
-      out.push({ key: `st:${st.id}`, platform: st.platform, ch: null, st, up: upc });
+      const g = groupOf(ch.profile);
+      const st = live.find((s) => s.platform === platform && same(ch.account, [s.username, s.title])) || null;
+      if (st) usedStat.add(st.id);
+      const conn = g.prof?.platforms.find((c) => c.platform === platform && c.connected) || null;
+      g.rows.push({ key: `ch:${ch.key}`, platform, ch, st, conn });
     }
-    return out;
-  }, [channels, stats, conns]);
+    // Соцсети, которых у аккаунта ещё нет: пустая строка «подключить» — это и
+    // есть следующий шаг, который человеку нужно увидеть.
+    for (const g of base) {
+      if (!g.prof) continue;
+      for (const platform of UP_PLATFORMS) {
+        if (g.rows.some((r) => r.platform === platform)) continue;
+        const conn = g.prof.platforms.find((c) => c.platform === platform) || null;
+        const st = conn?.connected ? live.find((s) => s.platform === platform && same(conn.handle, [s.username, s.title])) || null : null;
+        if (st) usedStat.add(st.id);
+        g.rows.push({ key: `up:${g.username}:${platform}`, platform, ch: null, st, conn });
+      }
+    }
+    // Аккаунты, которые есть только в статистике, — в основной аккаунт.
+    for (const st of live) {
+      if (usedStat.has(st.id)) continue;
+      groupOf("").rows.push({ key: `st:${st.id}`, platform: st.platform, ch: null, st, conn: null });
+    }
+    const order = ["tiktok", "youtube", "instagram", "telegram"];
+    for (const g of base) g.rows.sort((a, b) => order.indexOf(a.platform) - order.indexOf(b.platform));
+    return base;
+  }, [channels, stats, profiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const archStats = stats.filter((s) => s.archived);
 
@@ -118,23 +137,6 @@ export default function FactoryAccounts({
     }).then((x) => x.json()).catch(() => ({ error: "сеть" }));
     if (r.error) setNote(`Не вышло: ${r.error}`);
     return !r.error;
-  }
-
-  async function archive(c: Card) {
-    setMine(`arch-${c.key}`);
-    if (c.ch) await put({ channel: c.ch.key, archived: true }, `arch-${c.ch.key}`);
-    if (c.st) await archiveStat(c.st.id, "archive");
-    setAsking(""); setMine("");
-    setNote(`${label(c)} в архиве: сюда не выкладываем, сбор остановлен. Цифры и история сохранены.`);
-    await loadStats();
-  }
-
-  async function saveNote(c: Card) {
-    if (!c.st) return;
-    setMine(`note-${c.key}`);
-    await archiveStat(c.st.id, "note", noteText);
-    setNoting(""); setNoteText(""); setMine("");
-    await loadStats();
   }
 
   async function upPost(body: any) {
@@ -159,24 +161,52 @@ export default function FactoryAccounts({
     } finally { setMine(""); }
   }
 
-  async function addProfile() {
-    setMine("addprof"); setNote("");
-    try { await upPost({ action: "add", title: profTitle }); setProfTitle(""); await loadUp(); }
-    catch (e: any) { setNote(`Профиль не заведён: ${e.message}`); }
+  async function addAccount() {
+    if (newAcc === null) return;
+    setMine("addacc"); setNote("");
+    try { await upPost({ action: "add", title: newAcc }); setNewAcc(null); await loadUp(); }
+    catch (e: any) { setNote(`Аккаунт не заведён: ${e.message}`); }
     finally { setMine(""); }
   }
 
-  async function removeProfile(p: Prof) {
-    if (!confirm(`Удалить пустой профиль «${p.title}» (${p.username}) в upload-post? Он освободит место в тарифе.`)) return;
-    setMine(`rm-${p.username}`); setNote("");
-    try { await upPost({ action: "remove", username: p.username }); await loadUp(); }
+  async function removeAccount(g: Group) {
+    if (!confirm(`Удалить пустой аккаунт «${g.title}»? Он освободит место в тарифе upload-post.`)) return;
+    setMine(`rm-${g.username}`); setNote("");
+    try { await upPost({ action: "remove", username: g.username }); await loadUp(); }
     catch (e: any) { setNote(`Не удалён: ${e.message}`); }
     finally { setMine(""); }
   }
 
-  const label = (c: Card) => c.ch?.account ? `${NAME[c.platform] || c.platform} ${c.ch.account}` : c.st?.title || c.ch?.title || "";
+  // Соцсеть подключена в upload-post, а завод про неё не знает: заводим канал
+  // сразу с автопубликацией — человек для того и подключал.
+  async function startChannel(g: Group, r: Row) {
+    await put({
+      newChannel: {
+        title: `${NAME[r.platform]} · ${r.conn?.handle || g.title}`, net: NET_OF[r.platform],
+        account: r.conn?.handle || "", profile: g.username, connected: true,
+      },
+    }, `new-${r.key}`);
+  }
 
-  const period = (st: Stat) => {
+  async function archive(r: Row) {
+    setMine(`arch-${r.key}`);
+    if (r.ch) await put({ channel: r.ch.key, archived: true }, `arch-${r.ch.key}`);
+    if (r.st) await archiveStat(r.st.id, "archive");
+    setAsking(""); setMenu(""); setMine("");
+    setNote(`${label(r)} в архиве: сюда не выкладываем, сбор остановлен. Цифры и история сохранены.`);
+    await loadStats();
+  }
+
+  async function saveNote(r: Row) {
+    if (!r.st) return;
+    await archiveStat(r.st.id, "note", noteText);
+    setNoting(""); setNoteText("");
+    await loadStats();
+  }
+
+  const handle = (r: Row) => r.ch?.account || (r.conn?.connected ? r.conn.handle : "") || r.st?.title || "";
+  const label = (r: Row) => `${NAME[r.platform] || r.platform}${handle(r) ? ` ${handle(r)}` : ""}`;
+  const weekDelta = (st: Stat) => {
     const h = (st.history || []).filter((x: any) => x.followers != null).slice(-8);
     return h.length >= 2 ? h[h.length - 1].followers - h[0].followers : null;
   };
@@ -189,235 +219,241 @@ export default function FactoryAccounts({
     </button>
   );
 
+  const row = (g: Group, r: Row) => {
+    const d = r.st ? weekDelta(r.st) : null;
+    const h = handle(r);
+    return (
+      <div key={r.key} className="px-3 py-2.5">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-4 gap-y-2 items-center">
+          {/* Соцсеть и аккаунт в ней */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            {r.st?.avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={r.st.avatar} alt="" className="w-8 h-8 rounded-full bg-gray-100 shrink-0" />
+            ) : (
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${r.ch || r.conn?.connected ? "bg-white border" : "bg-gray-100 grayscale opacity-60"}`}>{ICON[r.platform] || "•"}</div>
+            )}
+            <div className="min-w-0">
+              <div className="text-sm truncate">
+                <span className="text-gray-500">{NAME[r.platform] || r.platform}</span>
+                {h && (r.st?.url
+                  ? <a href={r.st.url} target="_blank" className="font-semibold text-brand-700 hover:underline ml-1.5">{h}</a>
+                  : <span className="font-semibold ml-1.5">{h}</span>)}
+              </div>
+              <div className="text-xs text-gray-500 truncate">
+                {r.st ? <>{fmt(r.st.followers)} подп.{d != null && d !== 0 && <span className={d > 0 ? "text-green-600" : "text-red-600"}> {d > 0 ? "▲ +" : "▼ "}{fmt(d)} за неделю</span>}</>
+                  : r.ch ? "цифры не собираются" : r.conn?.connected ? "подключено" : "не подключено"}
+                {r.conn?.connected && r.ch && <span className="text-brand-700"> · ⚡ upload-post</span>}
+              </div>
+            </div>
+          </div>
+
+          {r.ch ? (
+            <>
+              <div className="flex items-center gap-2 col-span-2 md:col-span-1 order-3 md:order-none">
+                <Toggle on={!r.ch.paused} tag={`ch-${r.ch.key}`} name={`Выход в ${label(r)}`} onClick={() => togglePause(r.ch!.key, r.ch!.paused)} />
+                <div className="text-xs leading-tight">
+                  <div className="text-gray-800">{r.ch.paused ? "Выход закрыт" : "Выпускаем сюда"}</div>
+                  <div className="text-gray-500">{r.ch.paused ? "ролики сюда не идут" : "ролики для этой соцсети"}</div>
+                </div>
+              </div>
+              <div className={`flex items-center gap-2 col-span-2 md:col-span-1 order-4 md:order-none ${r.ch.paused ? "opacity-40" : ""}`}>
+                <Toggle on={r.ch.mode !== "manual"} tag={`conn-${r.ch.key}`} name={`Автопубликация ${label(r)}`}
+                  onClick={() => put({ channel: r.ch!.key, connected: r.ch!.mode === "manual" }, `conn-${r.ch!.key}`)} />
+                <div className="text-xs leading-tight">
+                  <div className="text-gray-800">{r.ch.mode === "manual" ? "В бот автопостинга" : "Автопубликация"}</div>
+                  <div className="text-gray-500">{r.ch.mode === "manual" ? `ролик приходит в ${bot}, выкладываете вы` : "завод выкладывает сам"}</div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="col-span-2 order-3 md:order-none text-xs">
+              {r.conn?.connected ? (
+                canManage ? (
+                  <button className="btn btn-primary text-xs" disabled={busy === `new-${r.key}`} onClick={() => startChannel(g, r)}>
+                    Выпускать сюда ролики
+                  </button>
+                ) : <span className="text-gray-500">подключено, завод сюда пока не выпускает</span>
+              ) : r.st ? (
+                <span className="text-gray-500">завод сюда не выпускает — аккаунт только в статистике</span>
+              ) : g.prof && canManage ? (
+                <button className="btn btn-secondary text-xs" disabled={mine === `link-${g.username}`} onClick={() => connect(g.username)}>
+                  Подключить {NAME[r.platform]}
+                </button>
+              ) : <span className="text-gray-400">не подключено</span>}
+            </div>
+          )}
+
+          {/* Редкие действия — в меню, чтобы строка не рябила кнопками */}
+          <div className="relative justify-self-end order-2 md:order-none">
+            {canManage && (r.ch || r.st) && (
+              <button className="w-8 h-8 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-800" aria-label="Ещё"
+                onClick={() => setMenu(menu === r.key ? "" : r.key)}>⋯</button>
+            )}
+            {menu === r.key && (
+              <div className="absolute right-0 top-9 z-20 w-52 bg-white border rounded-xl shadow-lg py-1 text-sm">
+                {r.ch && <button className="block w-full text-left px-3 py-1.5 hover:bg-gray-50" onClick={() => { setEditing(r.key); setMenu(""); }}>Заменить аккаунт</button>}
+                {r.ch && profiles.length > 1 && profiles.filter((p) => p.username !== g.username).map((p) => (
+                  <button key={p.username} className="block w-full text-left px-3 py-1.5 hover:bg-gray-50"
+                    onClick={() => { put({ channel: r.ch!.key, profile: p.username }, `mv-${r.ch!.key}`); setMenu(""); }}>
+                    Перенести в «{p.title}»
+                  </button>
+                ))}
+                {r.st && <button className="block w-full text-left px-3 py-1.5 hover:bg-gray-50" onClick={() => { setNoting(r.key); setNoteText(r.st!.note || ""); setMenu(""); }}>Заметка</button>}
+                <button className="block w-full text-left px-3 py-1.5 hover:bg-gray-50 text-red-700" onClick={() => { setAsking(r.key); setMenu(""); }}>В архив</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {(r.ch?.note || r.st?.note || (r.st && !r.st.publishes && r.st.reason)) && (
+          <div className="mt-1.5 md:pl-[42px] flex flex-wrap gap-1.5 text-[11px]">
+            {r.ch?.note && <span className="text-gray-500">{r.ch.note}</span>}
+            {r.st?.note && <span className="px-2 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-gray-700">✎ {r.st.note}</span>}
+            {r.st && !r.st.publishes && r.st.reason && (
+              <span className="relative group px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 cursor-help">
+                {r.st.suspicious ? "❓ не читается" : "⏸ не публикуется"}
+                <span className="hidden group-hover:block absolute bottom-full left-0 mb-1.5 w-64 bg-gray-900 text-white text-xs leading-5 rounded-lg px-3 py-2 z-20 shadow-lg">
+                  <b className="block mb-0.5">{r.st.reason.title}</b>{r.st.reason.body}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
+
+        {editing === r.key && r.ch && (
+          <form className="mt-2 md:pl-[42px] flex flex-wrap gap-2" onSubmit={async (e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget as HTMLFormElement);
+            if (await put({ channel: r.ch!.key, account: f.get("account") }, `c-${r.ch!.key}`)) setEditing("");
+          }}>
+            <input name="account" defaultValue={r.ch.account} className="input text-sm max-w-xs" placeholder="имя нового аккаунта" />
+            <button className="btn btn-primary text-xs" type="submit">Заменить</button>
+            <button className="btn btn-secondary text-xs" type="button" onClick={() => setEditing("")}>Отмена</button>
+            <p className="text-[11px] text-gray-500 basis-full">Новый аккаунт начинает с выкладки через бот: автопубликацию включите, когда он подключён.</p>
+          </form>
+        )}
+
+        {noting === r.key && (
+          <div className="mt-2 md:pl-[42px] flex gap-2 max-w-lg">
+            <input className="input text-sm" value={noteText} autoFocus placeholder="Ждём документы от Меты"
+              onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveNote(r)} />
+            <button className="btn btn-primary shrink-0 text-xs" onClick={() => saveNote(r)}>Сохранить</button>
+          </div>
+        )}
+
+        {asking === r.key && (
+          <div className="mt-2 md:ml-[42px] p-2.5 rounded-lg bg-yellow-50 border border-yellow-200 text-[13px] text-yellow-900 max-w-lg">
+            <b>Убрать {label(r)} в архив?</b>
+            <ul className="list-disc pl-4 my-1.5 space-y-0.5">
+              {r.ch && <li>завод сюда больше не выкладывает</li>}
+              {r.st && <li>сбор цифр останавливаем, из сумм аккаунт уходит</li>}
+              <li>подписчики, история{r.st ? ` и ${r.st.postsKept} постов` : ""} сохраняются — вернуть можно одной кнопкой</li>
+            </ul>
+            <div className="flex gap-2">
+              <button className="btn bg-red-100 text-red-800 hover:bg-red-200" disabled={mine === `arch-${r.key}`} onClick={() => archive(r)}>В архив</button>
+              <button className="btn btn-secondary" onClick={() => setAsking("")}>Отмена</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="card">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-        <div>
-          <h2 className="font-semibold">Аккаунты</h2>
-          <p className="text-xs text-gray-500">Куда выходят ролики: цифры, выход, кто выкладывает. Статистика — в разделе «Статистика Соц.сети».</p>
-        </div>
+      <div className="mb-3">
+        <h2 className="font-semibold">Аккаунты</h2>
+        <p className="text-xs text-gray-500 max-w-3xl">
+          Аккаунт — соцсети одной аудитории: общий, мужской, под язык. Заведите аккаунт, подключите соцсети
+          и решите для каждой: завод выкладывает сам или присылает ролик в бот. Цифры подробно — в «Статистике Соц.сети».
+        </p>
       </div>
 
       {note && <p className="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 mb-3">{note}</p>}
+      {up?.error && <p className="text-xs text-red-700 mb-3">upload-post не ответил: {up.error}. Подключение соцсетей временно недоступно, остальное работает.</p>}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map((c) => {
-          const state = c.ch ? c.ch.state : "stats";
-          const word = c.ch ? c.ch.word : "только статистика";
-          const d = c.st ? period(c.st) : null;
+      <div className="space-y-3">
+        {groups.map((g) => {
+          const empty = !g.rows.some((r) => r.ch || r.conn?.connected || r.st);
+          const key = g.username || "one";
           return (
-            <div key={c.key} className={`rounded-xl border p-3 flex flex-col ${c.ch?.paused ? "border-dashed bg-white" : "bg-gray-50/60"}`}>
-              <div className="flex items-start gap-3">
-                {c.st?.avatar ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.st.avatar} alt="" className="w-10 h-10 rounded-full bg-gray-100 shrink-0" />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center shrink-0">{ICON[c.platform] || "•"}</div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-gray-500 whitespace-nowrap">{NAME[c.platform] || c.platform}</span>
-                    <span className={`text-[11px] px-2 py-px rounded-full border shrink-0 ${CHIP[state] || CHIP.stats}`}>{word}</span>
-                  </div>
-                  {c.st?.url ? (
-                    <a href={c.st.url} target="_blank" className="font-semibold text-sm text-brand-700 hover:underline block truncate" title={c.ch?.account || c.st.title}>
-                      {c.ch?.account || c.st.title}
-                    </a>
-                  ) : (
-                    <div className="font-semibold text-sm truncate" title={c.ch?.account || c.st?.title}>{c.ch?.account || c.st?.title || "аккаунт не указан"}</div>
-                  )}
-                  <div className="text-xs text-gray-500">
-                    {c.st ? <>{fmt(c.st.followers)} подп.{d != null && d !== 0 && <span className={d > 0 ? "text-green-600" : "text-red-600"}> {d > 0 ? "▲ +" : "▼ "}{fmt(d)} за неделю</span>}</> : "цифры не собираются"}
-                  </div>
-                </div>
-              </div>
-
-              {c.ch && (
-                <div className="mt-3 divide-y border-y text-xs">
-                  <div className="flex items-center justify-between gap-2 py-1.5">
-                    <div>
-                      <div className="text-gray-800">{c.ch.paused ? "Выход закрыт" : "Выход открыт"}</div>
-                      <div className="text-gray-500">{c.ch.paused ? "сюда ничего не уходит" : "ролики для этого аккаунта выпускаем"}</div>
-                    </div>
-                    <Toggle on={!c.ch.paused} tag={`ch-${c.ch.key}`} name={`Выход в ${label(c)}`} onClick={() => togglePause(c.ch!.key, c.ch!.paused)} />
-                  </div>
-                  <div className="flex items-center justify-between gap-2 py-1.5">
-                    <div>
-                      <div className="text-gray-800">{c.ch.mode === "manual" ? "Выкладываете вы" : `Выкладывает ${publisher}`}</div>
-                      <div className="text-gray-500">{c.ch.mode === "manual" ? `ролик приходит в бот ${bot}` : "без ручной работы"}</div>
-                    </div>
-                    <Toggle on={c.ch.mode !== "manual"} tag={`conn-${c.ch.key}`} name={`Автопубликация ${label(c)}`}
-                      onClick={() => put({ channel: c.ch!.key, connected: c.ch!.mode === "manual" }, `conn-${c.ch!.key}`)} />
-                  </div>
-                </div>
-              )}
-              {!c.ch && (
-                <p className="mt-2 text-xs text-gray-500">Завод сюда не выкладывает — аккаунт только в статистике.</p>
-              )}
-
-              <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-                {c.up && <span className="px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">upload-post · {c.up.profile.title}</span>}
-                {c.st && !c.st.publishes && c.st.reason && (
-                  <span className="relative group px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 cursor-help">
-                    {c.st.suspicious ? "❓ не читается" : "⏸ не публикуется"}
-                    <span className="hidden group-hover:block absolute bottom-full left-0 mb-1.5 w-64 bg-gray-900 text-white text-xs leading-5 rounded-lg px-3 py-2 z-20 shadow-lg">
-                      <b className="block mb-0.5">{c.st.reason.title}</b>{c.st.reason.body}
-                    </span>
-                  </span>
-                )}
-              </div>
-              {c.ch?.note && <div className="text-xs text-gray-500 mt-1.5">{c.ch.note}</div>}
-              {c.st?.note && <div className="mt-1.5 text-xs text-gray-700 bg-yellow-50 border border-yellow-200 rounded-lg px-2 py-1">✎ {c.st.note}</div>}
-
-              {canManage && (
-                <div className="flex flex-wrap items-center gap-3 mt-auto pt-2.5 text-xs">
-                  {c.ch && (
-                    <button className="text-brand-700 hover:underline" onClick={() => setEditing(editing === c.key ? "" : c.key)}>
-                      {editing === c.key ? "свернуть" : "заменить аккаунт"}
+            <div key={key} className="rounded-xl border">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 bg-gray-50 border-b rounded-t-xl">
+                <div className="font-semibold text-sm">{g.title}</div>
+                {g.main && profiles.length > 1 && <span className="text-[11px] text-gray-400">основной — сюда завод выкладывает по умолчанию</span>}
+                <div className="ml-auto flex items-center gap-3 text-xs">
+                  {canManage && (
+                    <button className="text-brand-700 hover:underline" onClick={() => setAdding(adding === key ? "" : key)}>
+                      + соцсеть вручную
                     </button>
                   )}
-                  {c.st && (
-                    <button className="text-gray-500 hover:text-gray-900" onClick={() => { setNoting(noting === c.key ? "" : c.key); setNoteText(c.st!.note || ""); }}>
-                      ✎ заметка
-                    </button>
+                  {canManage && g.prof && empty && !g.main && (
+                    <button className="text-gray-400 hover:text-red-700" disabled={mine === `rm-${g.username}`} onClick={() => removeAccount(g)}>удалить аккаунт</button>
                   )}
-                  <button className="text-gray-500 hover:text-red-700 ml-auto" onClick={() => setAsking(asking === c.key ? "" : c.key)}>
-                    🗄 в архив
-                  </button>
                 </div>
-              )}
+              </div>
+              <div className="divide-y">{g.rows.map((r) => row(g, r))}</div>
+              {!g.rows.length && <p className="px-3 py-3 text-sm text-gray-500">Соцсетей нет: готовые ролики уходят в бот {bot}, выкладываете вы.</p>}
 
-              {editing === c.key && c.ch && (
-                <form className="mt-2 flex flex-wrap gap-2" onSubmit={async (e) => {
+              {adding === key && canManage && (
+                <form className="border-t px-3 py-2.5 flex flex-wrap gap-2 items-start bg-white rounded-b-xl" onSubmit={async (e) => {
                   e.preventDefault();
                   const f = new FormData(e.currentTarget as HTMLFormElement);
-                  if (await put({ channel: c.ch!.key, account: f.get("account") }, `c-${c.ch!.key}`)) setEditing("");
+                  const net = String(f.get("net"));
+                  const account = String(f.get("account") || "");
+                  const ok = await put({ newChannel: { title: `${NAME[NET[net]] || net}${account ? ` · ${account}` : ""}`, net, account, profile: g.username } }, "newCh");
+                  if (ok) setAdding("");
                 }}>
-                  <input name="account" defaultValue={c.ch.account} className="input text-sm flex-1 min-w-0" placeholder="имя нового аккаунта" />
-                  <button className="btn btn-primary text-xs" type="submit">Заменить</button>
-                  <p className="text-[11px] text-gray-500 basis-full">Новый аккаунт считается неподключённым: ролики идут в бот, пока не включите «Выкладывает завод».</p>
+                  <select name="net" className="input text-sm max-w-[150px]" defaultValue="TG">
+                    <option value="TT">TikTok</option>
+                    <option value="YT">YouTube</option>
+                    <option value="IG">Instagram</option>
+                    <option value="TG">Telegram</option>
+                  </select>
+                  <input name="account" className="input text-sm max-w-[220px]" placeholder="имя аккаунта в соцсети" />
+                  <button className="btn btn-primary text-sm" type="submit">Добавить</button>
+                  <p className="text-xs text-gray-500 basis-full">
+                    Для соцсети, которую завод ведёт без upload-post (например, Telegram). Начинает с выкладки через бот.
+                  </p>
                 </form>
-              )}
-
-              {noting === c.key && (
-                <div className="mt-2 flex gap-2">
-                  <input className="input text-sm" value={noteText} autoFocus placeholder="Ждём документы от Меты"
-                    onChange={(e) => setNoteText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveNote(c)} />
-                  <button className="btn btn-primary shrink-0 text-xs" disabled={mine === `note-${c.key}`} onClick={() => saveNote(c)}>Сохранить</button>
-                </div>
-              )}
-
-              {asking === c.key && (
-                <div className="mt-2 p-2.5 rounded-lg bg-yellow-50 border border-yellow-200 text-[13px] text-yellow-900">
-                  <b>Убрать {label(c)} в архив?</b>
-                  <ul className="list-disc pl-4 my-1.5 space-y-0.5">
-                    {c.ch && <li>завод сюда больше не выкладывает</li>}
-                    {c.st && <li>сбор цифр останавливаем, из сумм аккаунт уходит</li>}
-                    <li>подписчики, история{c.st ? ` и ${c.st.postsKept} постов` : ""} сохраняются — вернуть можно одной кнопкой</li>
-                  </ul>
-                  <div className="flex gap-2">
-                    <button className="btn bg-red-100 text-red-800 hover:bg-red-200" disabled={mine === `arch-${c.key}`} onClick={() => archive(c)}>В архив</button>
-                    <button className="btn btn-secondary" onClick={() => setAsking("")}>Отмена</button>
-                  </div>
-                </div>
               )}
             </div>
           );
         })}
-
-        {!cards.length && (
-          <p className="text-sm text-gray-500 border border-dashed rounded-xl p-3 bg-gray-50 sm:col-span-2 lg:col-span-3">
-            Аккаунтов нет: готовые ролики уходят в бот {bot}, выкладываете вы.
-          </p>
-        )}
       </div>
 
-      {canManage && (
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-          <button className="btn btn-secondary" onClick={() => setAdding(!adding)}>{adding ? "Отменить" : "＋ Добавить аккаунт"}</button>
-          {up && !up.error && (
-            <button className="text-gray-600 hover:text-brand-700" onClick={() => setShowUp(!showUp)}>
-              ⚡ Автопубликация · {up.profiles?.length || 0} {showUp ? "▴" : "▾"}
-            </button>
-          )}
-          {(archived.length + archStats.length) > 0 && (
-            <button className="text-gray-500 hover:text-gray-900" onClick={() => setShowArch(!showArch)}>
-              🗄 Архив · {archived.length + archStats.length}
-            </button>
-          )}
-        </div>
-      )}
-
-      {adding && canManage && (
-        <form className="mt-3 flex flex-wrap gap-2 items-start" onSubmit={async (e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget as HTMLFormElement);
-          const net = String(f.get("net"));
-          const account = String(f.get("account") || "");
-          const ok = await put({ newChannel: { title: `${NAME[NET[net]] || net}${account ? ` · ${account}` : ""}`, net, account } }, "newCh");
-          if (ok) setAdding(false);
-        }}>
-          <select name="net" className="input text-sm max-w-[150px]" defaultValue="TT">
-            <option value="TT">TikTok</option>
-            <option value="YT">YouTube</option>
-            <option value="IG">Instagram</option>
-            <option value="TG">Telegram</option>
-          </select>
-          <input name="account" className="input text-sm max-w-[220px]" placeholder="имя аккаунта, например superfit05" />
-          <button className="btn btn-primary text-sm" type="submit">Добавить</button>
-          <p className="text-xs text-gray-500 basis-full">Новый аккаунт появляется с ручной выкладкой: ролики идут в бот, пока не включите «Выкладывает завод».</p>
-        </form>
-      )}
-
-      {showUp && up && !up.error && (
-        <div className="mt-3 border-t pt-3 space-y-2">
-          <p className="text-xs text-gray-500">
-            Автопубликация через upload-post (сервис, который выкладывает сразу во все соцсети). Профиль — связка
-            из одного TikTok, одного YouTube и одного Instagram для одной аудитории: общий, мужской, под язык.
-            {up.limit != null && <> Тариф {up.plan}: занято {up.used} из {up.limit} профилей на все проекты.</>}
-          </p>
-          {(up.profiles || []).map((p) => {
-            const empty = !p.platforms.some((x) => x.connected);
-            return (
-              <div key={p.username} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
-                <div className="min-w-[8rem]">
-                  <div className="text-sm font-medium">{p.title}{p.main && <span className="ml-1.5 text-[11px] text-gray-400">основной</span>}</div>
-                  <div className="text-[11px] text-gray-400 font-mono">{p.username}</div>
-                </div>
-                <div className="flex flex-wrap gap-1.5 flex-1">
-                  {p.platforms.map((x) => (
-                    <span key={x.platform} className={`text-xs px-2 py-0.5 rounded-lg ${x.connected ? "bg-green-50 text-green-800" : "bg-gray-50 text-gray-400"}`}>
-                      {ICON[x.platform]} {x.label}{x.connected ? (x.handle ? ` · @${x.handle}` : " ✓") : " —"}
-                    </span>
-                  ))}
-                </div>
-                <button className="btn btn-secondary text-xs" disabled={mine === `link-${p.username}`} onClick={() => connect(p.username)}>
-                  {mine === `link-${p.username}` ? "Открываю…" : "Подключить соцсети"}
-                </button>
-                {empty && !p.main && (
-                  <button className="text-xs text-gray-400 hover:text-red-700" disabled={mine === `rm-${p.username}`} onClick={() => removeProfile(p)}>удалить</button>
-                )}
-              </div>
-            );
-          })}
-          <div className="flex flex-wrap gap-2">
-            <input className="input text-sm max-w-xs" value={profTitle} onChange={(e) => setProfTitle(e.target.value)}
-              placeholder={(up.profiles || []).length ? "Название: Мужской, Футбол, English" : "Основной"}
-              onKeyDown={(e) => e.key === "Enter" && profTitle.trim() && addProfile()} />
-            <button className="btn btn-secondary text-sm" disabled={!profTitle.trim() || mine === "addprof"} onClick={addProfile}>
-              {mine === "addprof" ? "Завожу…" : "＋ Профиль"}
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+        {canManage && up && !up.error && (
+          newAcc === null ? (
+            <button className="btn btn-secondary" onClick={() => setNewAcc("")}>＋ Аккаунт</button>
+          ) : (
+            <span className="flex flex-wrap gap-2">
+              <input className="input text-sm max-w-xs" autoFocus value={newAcc} onChange={(e) => setNewAcc(e.target.value)}
+                placeholder={profiles.length ? "Название: Мужской, Футбол, English" : "Основной"}
+                onKeyDown={(e) => { if (e.key === "Enter" && newAcc.trim()) addAccount(); if (e.key === "Escape") setNewAcc(null); }} />
+              <button className="btn btn-primary text-sm" disabled={!newAcc.trim() || mine === "addacc"} onClick={addAccount}>
+                {mine === "addacc" ? "Завожу…" : "Завести"}
+              </button>
+              <button className="btn btn-secondary text-sm" onClick={() => setNewAcc(null)}>Отмена</button>
+            </span>
+          )
+        )}
+        {up?.limit != null && <span className="text-xs text-gray-400">тариф upload-post {up.plan}: занято {up.used} из {up.limit} аккаунтов на все проекты</span>}
+        {(archived.length + archStats.length) > 0 && (
+          <button className="text-gray-500 hover:text-gray-900 ml-auto" onClick={() => setShowArch(!showArch)}>
+            🗄 Архив · {archived.length + archStats.length}
+          </button>
+        )}
+      </div>
 
       {showArch && (
         <div className="mt-3 border-t pt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {archived.map((ch) => (
             <div key={ch.key} className="border rounded-lg p-3 bg-white text-sm">
               <div className="flex items-center justify-between gap-2">
-                <b>{ICON[NET[ch.net]]} {ch.account || ch.title}</b>
-                <span className="text-[11px] px-2 py-px rounded-full border bg-gray-50 text-gray-500">в архиве</span>
+                <b className="truncate">{ICON[NET[ch.net]]} {ch.account || ch.title}</b>
+                <span className="text-[11px] px-2 py-px rounded-full border bg-gray-50 text-gray-500 shrink-0">в архиве</span>
               </div>
               <div className="text-xs text-gray-500">{ch.title} · завод не выкладывает</div>
               {canManage && (
@@ -448,4 +484,3 @@ export default function FactoryAccounts({
     </div>
   );
 }
-

@@ -411,6 +411,7 @@ model Channel {
   paused   Boolean  @default(false)
   note     String   @default("")
   archived Boolean  @default(false)
+  profile  String   @default("") // профиль upload-post, в котором живёт аккаунт; пусто — основной
   at       DateTime @updatedAt
 
   @@unique([brand, key])

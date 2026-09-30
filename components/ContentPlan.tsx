@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { SourcePicker } from "@/components/formatsUi";
 
 // Контент-план — единственное место про темы и тексты. «Как работает завод»
 // (форматы, расписание, каналы) живёт в «Контент-заводе», здесь — «о чём
@@ -13,7 +12,7 @@ type Cell = {
   text: string; status: string; account: string;
 };
 type Way = { type: string; title: string; detail: string; fixed: boolean; engine: { title: string; detail: string } | null; config: any };
-type Routes = { channels: { key: string; title: string; account: string; net: string }[]; byKind: Record<string, string[]> };
+type Routes = { channels: { key: string; title: string; account: string; net: string }[]; byKind: Record<string, string[]>; known?: boolean };
 const NET_ICON: Record<string, string> = { IG: "📸", YT: "📺", TT: "🎵", TG: "✈️" };
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
@@ -47,8 +46,7 @@ export default function ContentPlan() {
   const [err, setErr] = useState("");
   const [routes, setRoutes] = useState<Routes>({ channels: [], byKind: {} });
   const [account, setAccount] = useState("all");
-  const [picking, setPicking] = useState("");
-  const [assets, setAssets] = useState<{ id: string; role: string; name: string }[]>([]);
+  const [kind, setKind] = useState("all");
 
   async function load(opts: { week?: string; month?: string } = {}) {
     const q = opts.month ? `?month=${opts.month}` : `?week=${opts.week || weekStart || today()}`;
@@ -85,29 +83,9 @@ export default function ContentPlan() {
       setNote(d.filled
         ? `Вписано тем: ${d.filled}. Пустые дни заполнены из источников, вписанное не тронуто.`
         : own ? "Пустых дней с источником Постоса не осталось."
-        : "Все форматы берут темы у завода. Чтобы Постос вписывал темы заранее, нажмите на формат выше и выберите источник.");
+        : "Все форматы берут темы у завода. Чтобы Постос вписывал темы заранее, смените источник в карточке формата в Контент-заводе.");
       if (d.errors?.length) setErr(`Не вышло: ${d.errors.join("; ")}`);
       await load(view === "month" ? { month: m } : { week: weekStart });
-    } catch (e: any) { setErr(e.message); } finally { setBusy(""); }
-  }
-
-  async function openPicker(slot: string) {
-    setPicking(slot);
-    const d = await fetch("/api/formats").then((r) => r.json()).catch(() => null);
-    setAssets(d?.assets || []);
-  }
-
-  async function saveSource(type: string, config: any) {
-    setBusy("source"); setErr("");
-    try {
-      const r = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "source", kind: picking, type, config }) });
-      const d = await r.json();
-      if (!r.ok || d.error) throw new Error(d.error || `ошибка ${r.status}`);
-      setPicking("");
-      setNote(["brief", "search", "donor", "kb"].includes(type)
-        ? "Источник сменён. Постос сам впишет темы на ближайшие дни; на месяц вперёд — кнопкой «Вписать темы»."
-        : "Источник сменён.");
-      await load(view === "month" ? { month } : { week: weekStart });
     } catch (e: any) { setErr(e.message); } finally { setBusy(""); }
   }
 
@@ -115,11 +93,19 @@ export default function ContentPlan() {
   // плана бывают уточнёнными («trainer:female») — ищем и по общему виду.
   const goesTo = (slot: string, ch: string) =>
     (routes.byKind[slot] || routes.byKind[slot.split(":")[0]] || []).includes(ch);
+  const allKinds = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of cells) if (!m.has(c.slot)) m.set(c.slot, c.label);
+    return [...m.entries()];
+  }, [cells]);
   const shown = useMemo(
-    () => (account === "all" ? cells : cells.filter((c) => goesTo(c.slot, account))),
+    () => cells.filter((c) => (account === "all" || goesTo(c.slot, account)) && (kind === "all" || c.slot === kind)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cells, account, routes],
+    [cells, account, kind, routes],
   );
+  // Где настраивается источник: у формата работающего завода — в его
+  // карточке в пульте, у нового проекта — в мастере настройки формата.
+  const setupHref = (slot: string) => routes.known ? `/factory#format=${encodeURIComponent(slot)}` : `/formats/${slot.split(":")[0]}`;
 
   const kinds = useMemo(() => {
     const m = new Map<string, string>();
@@ -165,38 +151,17 @@ export default function ContentPlan() {
         )}
       </div>
 
-      {kinds.length > 0 && (
+      {allKinds.length > 0 && (
         <div>
-          <div className="text-xs text-gray-400 mb-1.5">Откуда формат берёт темы{canEdit ? " — нажмите, чтобы сменить" : ""}:</div>
+          <div className="text-xs text-gray-400 mb-1.5">Откуда форматы берут темы · меняется в карточке формата в Контент-заводе:</div>
           <div className="flex flex-wrap gap-2">
-            {kinds.map(([slot, label]) => ways[slot] && (
-              <button key={slot} disabled={!canEdit} onClick={() => openPicker(slot)} title={ways[slot].detail}
-                className={`text-xs bg-white border rounded-lg px-2.5 py-1.5 text-left ${canEdit ? "hover:border-brand-600 hover:shadow-sm" : "cursor-default"}`}>
+            {allKinds.map(([slot, label]) => ways[slot] && (
+              <a key={slot} href={setupHref(slot)} title={ways[slot].detail}
+                className="text-xs bg-white border rounded-lg px-2.5 py-1.5 hover:border-brand-600">
                 <b className="font-medium">{label}</b>{" "}
                 <span className="text-gray-400">{ways[slot].fixed ? "завод:" : "Постос:"}</span> {ways[slot].title}
-                {canEdit && <span className="text-gray-300 ml-1">✎</span>}
-              </button>
+              </a>
             ))}
-          </div>
-        </div>
-      )}
-
-      {picking && ways[picking] && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-start md:items-center justify-center p-0 md:p-6 overflow-y-auto" onClick={() => setPicking("")}>
-          <div className="bg-white w-full max-w-2xl md:rounded-2xl shadow-2xl p-5 md:p-6 min-h-full md:min-h-0" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3 mb-1">
-              <h3 className="text-lg font-semibold">Откуда «{kinds.find(([k]) => k === picking)?.[1] || picking}» берёт темы</h3>
-              <button className="text-gray-400 hover:text-gray-900" onClick={() => setPicking("")}>✕</button>
-            </div>
-            <p className="text-sm text-gray-500 mb-4">
-              {ways[picking].engine
-                ? "У завода свой источник. Выберете другой — Постос будет заранее вписывать темы в план, а завод возьмёт тему из плана."
-                : "Постос заранее вписывает темы в план из выбранного источника. Вписанное руками всегда важнее."}
-            </p>
-            <SourcePicker
-              current={ways[picking].fixed ? null : { type: ways[picking].type, config: ways[picking].config }}
-              engine={ways[picking].engine} assets={assets} canEdit={canEdit} busy={busy === "source"}
-              onSave={saveSource} onReload={() => openPicker(picking)} />
           </div>
         </div>
       )}
@@ -205,7 +170,7 @@ export default function ContentPlan() {
       {err && <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1 bg-white border rounded-lg p-0.5">
             {(["week", "month"] as const).map((v) => (
               <button key={v} className={`px-3 py-1 rounded-md text-sm ${view === v ? "bg-brand-600 text-white" : "text-gray-600"}`}
@@ -214,6 +179,13 @@ export default function ContentPlan() {
               </button>
             ))}
           </div>
+          {allKinds.length > 1 && (
+            <select value={kind} onChange={(e) => setKind(e.target.value)}
+              className="border rounded-lg px-2 py-1.5 text-sm bg-white max-w-[180px]">
+              <option value="all">Все форматы</option>
+              {allKinds.map(([slot, label]) => <option key={slot} value={slot}>{label}</option>)}
+            </select>
+          )}
           {routes.channels.length > 0 && (
             <select value={account} onChange={(e) => setAccount(e.target.value)}
               className="border rounded-lg px-2 py-1.5 text-sm bg-white max-w-[210px]">
@@ -238,7 +210,7 @@ export default function ContentPlan() {
 
       {cells.length > 0 && shown.length === 0 && (
         <div className="card text-sm text-gray-500">
-          В этот аккаунт на этих датах ничего не выходит. Какие форматы куда выходят — в <a href="/factory" className="text-brand-700 hover:underline">Контент-заводе</a>, блок «Форматы».
+          По этому отбору на этих датах ничего не выходит. Какие форматы куда выходят — в <a href="/factory" className="text-brand-700 hover:underline">Контент-заводе</a>, блок «Форматы».
         </div>
       )}
 

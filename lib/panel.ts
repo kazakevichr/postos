@@ -332,7 +332,9 @@ export async function panelData(brand: string) {
     // только под заказы; у остальных это переключается.
     orders: await ordersEnabled(brand),
     ordersSwitchable: brand !== MONEYBALL && Boolean(body),
-    ...(body || { channels: [], archived: [], botOn: true, groups: [], today: [], caps: null }),
+    // У проекта без своего завода каналы всё равно есть: их заводят в блоке
+    // «Аккаунты» заранее, до первого ролика.
+    ...(body || { channels: await channelsOf(brand), archived: await archivedOf(brand), botOn: true, groups: [], today: [], caps: null }),
     known: Boolean(body),
   };
 }

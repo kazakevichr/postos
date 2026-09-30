@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import ProjectFormats from "@/components/ProjectFormats";
 import FactoryAccounts from "@/components/FactoryAccounts";
+import { SourcePicker } from "@/components/formatsUi";
 
 const DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const ALL = [1, 2, 3, 4, 5, 6, 7];
@@ -22,7 +23,7 @@ type Slot = { days: number[]; time: string };
 type Route = { ch: string; on: boolean; state: string; word: string };
 type Format = {
   kind: string; label: string; note: string; mode: string;
-  topics?: { type: string; title: string; detail: string; fixed: boolean };
+  topics?: { type: string; title: string; detail: string; fixed: boolean; engine: { title: string; detail: string } | null; config: any };
   slots: Slot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
   routes: Route[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
@@ -60,6 +61,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   const [view, setView] = useState<"rows" | "table">("rows");
   const [tab, setTab] = useState<"today" | "week">("today");
   const [openKind, setOpenKind] = useState("");
+  const [assets, setAssets] = useState<{ id: string; role: string; name: string }[]>([]);
   const [draft, setDraft] = useState<{ mode: string; slots: Slot[] } | null>(null);
   const [openScript, setOpenScript] = useState("");
   const [busy, setBusy] = useState("");
@@ -70,18 +72,30 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     if (r.ok) setData(await r.json());
   }
   useEffect(() => {
+    loadAssets();
     load();
     const t = setInterval(load, 60_000); // заказы живут своей жизнью
     return () => clearInterval(t);
   }, []);
+
+  // Ссылка из контент-плана «/factory#format=make» открывает карточку формата.
+  useEffect(() => {
+    const m = window.location.hash.match(/^#format=(.+)$/);
+    if (!m || !data?.groups) return;
+    const f = data.groups.flatMap((g: any) => g.formats).find((x: Format) => x.kind === decodeURIComponent(m[1]));
+    if (!f) return;
+    setOpenKind(f.kind);
+    setDraft({ mode: f.mode, slots: copy(f.slots) });
+    history.replaceState(null, "", window.location.pathname);
+  }, [data]);
 
   if (!data) return null;
   if (!data.known) {
     return (
       <div className="space-y-4 mb-4">
         <ProjectFormats label={data.label} />
-        <FactoryAccounts brand={data.brand} channels={[]} archived={[]} canManage={canManage}
-          publisher="завод" bot={data.bot} busy={busy} put={put} togglePause={() => {}} />
+        <FactoryAccounts brand={data.brand} channels={data.channels || []} archived={data.archived || []} canManage={canManage}
+          bot={data.bot} busy={busy} put={put} togglePause={(key, paused) => put({ channel: key, paused: !paused }, `ch-${key}`)} />
       </div>
     );
   }
@@ -110,6 +124,25 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
     setData(j);
     setBusy("");
     return true;
+  }
+
+  async function loadAssets() {
+    const d = await fetch("/api/formats").then((r) => r.json()).catch(() => null);
+    setAssets(d?.assets || []);
+  }
+
+  // Источник тем правится здесь, в карточке формата: это настройка того, как
+  // формат работает. Контент-план его только показывает.
+  async function saveSource(kind: string, type: string, config: any) {
+    setBusy(`src-${kind}`); setNote("");
+    const r = await fetch("/api/plan", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "source", kind, type, config }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) setNote(j.error || `ошибка ${r.status}`);
+    await load();
+    setBusy("");
   }
 
   async function saveSchedule(kind: string, mode: string, slots: Slot[]) {
@@ -354,7 +387,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
 
       {/* ── Аккаунты: каналы пульта, статистика и автопубликация — одной карточкой ── */}
       <FactoryAccounts brand={data.brand} channels={channels} archived={archived} canManage={canManage}
-        publisher={caps?.publisher || "машина"} bot={data.bot} busy={busy} put={put} togglePause={togglePause} />
+        bot={data.bot} busy={busy} put={put} togglePause={togglePause} />
 
       {/* ── Форматы ────────────────────────────────────────────────────── */}
       <div className="card">
@@ -535,14 +568,22 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                 {f.topics && (
                   <section>
                     <h3 className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Откуда темы</h3>
-                    <div className="rounded-lg border bg-gray-50 px-3 py-2.5">
-                      <div className="font-medium">{f.topics.title}</div>
-                      <p className="text-gray-500 mt-0.5">{f.topics.detail}</p>
-                    </div>
+                    {canManage ? (
+                      <SourcePicker key={`${f.kind}:${f.topics.type}`}
+                        current={f.topics.fixed ? null : { type: f.topics.type, config: f.topics.config }}
+                        engine={f.topics.engine} assets={assets} canEdit={canManage} busy={busy === `src-${f.kind}`}
+                        onSave={(type, config) => saveSource(f.kind, type, config)} onReload={loadAssets} />
+                    ) : (
+                      <div className="rounded-lg border bg-gray-50 px-3 py-2.5">
+                        <div className="font-medium">{f.topics.title}</div>
+                        <p className="text-gray-500 mt-0.5">{f.topics.detail}</p>
+                      </div>
+                    )}
                     <p className="text-xs text-gray-400 mt-1.5">
-                      Если в <a href="/plan" className="text-brand-700 hover:underline">контент-плане</a> на этот день
-                      вписана тема — завод возьмёт её, а источник не тронет.
-                      {" "}Сменить источник — в <a href="/plan" className="text-brand-700 hover:underline">контент-плане</a>, нажав на формат.
+                      {f.topics.fixed
+                        ? "Сейчас темы берёт сам завод. Выберете другой источник — Постос будет заранее вписывать темы в план, а завод возьмёт тему из плана."
+                        : "Постос заранее вписывает темы в план из этого источника."}
+                      {" "}Тема, вписанная в <a href="/plan" className="text-brand-700 hover:underline">контент-план</a> руками, всегда важнее.
                     </p>
                   </section>
                 )}

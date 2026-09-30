@@ -42,7 +42,7 @@ export async function PUT(req: Request) {
     else if (b?.newChannel) await createChannel(brand, b.newChannel);
     else if (b?.channel) {
       await saveChannel(brand, String(b.channel), {
-        account: b.account, connected: b.connected, paused: b.paused, archived: b.archived,
+        account: b.account, connected: b.connected, paused: b.paused, archived: b.archived, profile: b.profile,
       });
     } else if (b?.format) {
       const patch: Record<string, boolean> = {};

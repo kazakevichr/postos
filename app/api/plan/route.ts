@@ -23,9 +23,9 @@ async function routesOf(brand: string) {
     for (const g of d.groups || []) {
       for (const f of g.formats || []) byKind[f.kind] = (f.routes || []).filter((r: any) => r.on).map((r: any) => r.ch);
     }
-    return { channels, byKind };
+    return { channels, byKind, known: Boolean(d.known) };
   } catch {
-    return { channels: [], byKind: {} };
+    return { channels: [], byKind: {}, known: false };
   }
 }
 

@@ -62,7 +62,7 @@ export async function ensureChannels(brand: string) {
 }
 
 export type ChannelView = {
-  key: string; title: string; net: string; account: string;
+  key: string; title: string; net: string; account: string; profile: string;
   mode: string; paused: boolean; note: string; state: ChannelState; word: string;
 };
 
@@ -81,7 +81,7 @@ export async function channelsOf(brand: string): Promise<ChannelView[]> {
     const paused = brand === DEFAULT_BRAND ? flags[`${c.key}|*`] === false : c.paused;
     const state: ChannelState = paused ? "pause" : c.mode === "manual" ? "manual" : "auto";
     return {
-      key: c.key, title: c.title, net: c.net, account: c.account,
+      key: c.key, title: c.title, net: c.net, account: c.account, profile: c.profile,
       mode: c.mode, paused, note: c.note, state, word: STATE_WORD[state],
     };
   });
@@ -90,7 +90,7 @@ export async function channelsOf(brand: string): Promise<ChannelView[]> {
 /** Правка канала: имя аккаунта, признак подключения, пауза, архив. */
 export async function saveChannel(
   brand: string, key: string,
-  patch: { account?: string; connected?: boolean; paused?: boolean; archived?: boolean },
+  patch: { account?: string; connected?: boolean; paused?: boolean; archived?: boolean; profile?: string },
 ) {
   await ensureChannels(brand);
   const data: Record<string, unknown> = {};
@@ -107,11 +107,12 @@ export async function saveChannel(
   // пульт правит именно её.
   if (patch.paused !== undefined && brand !== DEFAULT_BRAND) data.paused = Boolean(patch.paused);
   if (patch.archived !== undefined) data.archived = Boolean(patch.archived);
+  if (patch.profile !== undefined) data.profile = String(patch.profile).slice(0, 80);
   return prisma.channel.update({ where: { brand_key: { brand, key } }, data });
 }
 
 /** Новый канал: место публикации, которого у бренда ещё не было. */
-export async function createChannel(brand: string, body: { title?: string; net?: string; account?: string }) {
+export async function createChannel(brand: string, body: { title?: string; net?: string; account?: string; profile?: string; connected?: boolean }) {
   const title = String(body.title || "").trim().slice(0, 60);
   const net = String(body.net || "").trim().toUpperCase();
   if (!title) throw new Error("нужно название канала");
@@ -121,7 +122,10 @@ export async function createChannel(brand: string, body: { title?: string; net?:
   let key = base;
   for (let i = 2; await prisma.channel.findUnique({ where: { brand_key: { brand, key } } }); i++) key = `${base}_${i}`;
   return prisma.channel.create({
-    data: { brand, key, title, net, account: String(body.account || "").trim().slice(0, 80), mode: "manual" },
+    data: {
+      brand, key, title, net, account: String(body.account || "").trim().slice(0, 80),
+      profile: String(body.profile || "").slice(0, 80), mode: body.connected ? "factory" : "manual",
+    },
   });
 }
 
@@ -129,7 +133,7 @@ export async function createChannel(brand: string, body: { title?: string; net?:
 export async function archivedOf(brand: string): Promise<ChannelView[]> {
   const rows = await prisma.channel.findMany({ where: { brand, archived: true }, orderBy: { key: "asc" } });
   return rows.map((c) => ({
-    key: c.key, title: c.title, net: c.net, account: c.account,
+    key: c.key, title: c.title, net: c.net, account: c.account, profile: c.profile,
     mode: c.mode, paused: true, note: c.note, state: "pause" as ChannelState, word: "в архиве",
   }));
 }
