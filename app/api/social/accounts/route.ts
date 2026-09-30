@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { socialScope } from "@/lib/access";
 import { accounts, addProfile, connectLink, upKey } from "@/lib/uploadpost";
-import { ALL_BRAND_KEYS } from "@/lib/brands";
+import { allBrands, brandTitle } from "@/lib/brands";
 
 export const dynamic = "force-dynamic";
 
@@ -12,17 +12,17 @@ export const dynamic = "force-dynamic";
 // Проекты, чьи аккаунты человеку видны: его направления, а у владельца —
 // все. Показываем только те, для которых есть ключ, — то есть при общем
 // ключе все, кроме Оракла.
-function allowed(brands: string[] | null) {
-  return (brands ?? ALL_BRAND_KEYS).filter((b) => upKey(b));
+async function allowed(brands: string[] | null) {
+  return (brands ?? (await allBrands())).filter((b) => upKey(b));
 }
 
 export async function GET() {
   const scope = await socialScope();
   if (!scope) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const out = [];
-  for (const brand of allowed(scope.brands)) {
+  for (const brand of await allowed(scope.brands)) {
     try {
-      out.push({ brand, ...(await accounts(brand)) });
+      out.push({ brand, title: await brandTitle(brand), ...(await accounts(brand)) });
     } catch (e: any) {
       // Один проект с битым ключом не должен прятать остальные.
       out.push({ brand, error: String(e?.message || e) });
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
   }
   const b = await req.json().catch(() => ({}));
   const brand = String(b.brand || "");
-  if (!allowed(scope.brands).includes(brand)) {
+  if (!(await allowed(scope.brands)).includes(brand)) {
     return NextResponse.json({ error: "проект вне ваших рамок или без ключа" }, { status: 403 });
   }
   try {

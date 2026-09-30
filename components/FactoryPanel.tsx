@@ -10,6 +10,7 @@
 // Слова состояний одни и те же в строке, в таблице и в карточке формата:
 // авто · вручную · пауза · выкл · нельзя.
 import { useEffect, useState } from "react";
+import ProjectFormats from "@/components/ProjectFormats";
 
 const DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const ALL = [1, 2, 3, 4, 5, 6, 7];
@@ -77,17 +78,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
   }, []);
 
   if (!data) return null;
-  if (!data.known) {
-    return (
-      <div className="card mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="font-semibold">У проекта «{data.label}» пока нет форматов</div>
-          <p className="text-sm text-gray-500">Выберите, какой контент будет делать завод, — у каждого формата есть пример готового результата.</p>
-        </div>
-        <a href="/formats" className="btn btn-primary">+ Добавить формат</a>
-      </div>
-    );
-  }
+  if (!data.known) return <ProjectFormats label={data.label} />;
 
   const { channels, archived, groups, today, now, caps } = data;
   // Чего этот завод пока не слушается. Пустая строка — слушается, и тумблер

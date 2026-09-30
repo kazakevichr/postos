@@ -15,6 +15,7 @@ type Conn = { platform: string; label: string; connected: boolean; handle: strin
 type Prof = { username: string; title: string; main: boolean; platforms: Conn[] };
 type Proj = {
   brand: string;
+  title?: string;
   plan?: string;
   limit?: number | null;
   used?: number;
@@ -114,7 +115,7 @@ export default function PublishAccounts({ brands }: { brands?: string[] }) {
       {projects.map((p) => (
         <div key={p.brand} className="space-y-2">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="font-semibold">{brandLabel(p.brand)}</span>
+            <span className="font-semibold">{p.title || brandLabel(p.brand)}</span>
             {p.limit != null && (
               <span className={`text-xs px-2 py-0.5 rounded-full ${
                 (p.used ?? 0) >= p.limit ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-600"

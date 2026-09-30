@@ -7,6 +7,7 @@ import { scheduleMap } from "@/lib/routes";
 import { MONEYBALL } from "@/lib/moneyball";
 import { brandFormats, ruleLabel, scheduleOf } from "@/lib/schedule";
 import type { SocialScope } from "@/lib/access";
+import { CATALOG } from "@/lib/formatCatalog";
 
 // Все производимые типы, кроме нарезок (чужой контент, темы не планируются)
 // и ручных постов (их темы рождаются вне завода).
@@ -229,5 +230,24 @@ export async function planSlots(brand: string = DEFAULT_BRAND) {
   });
   const brands = jobBrands(rows);
   const slots = [...new Set(rows.filter((r) => brands.get(r.jobId) === brand).map((r) => r.slot))];
-  return slots.sort().map((slot) => ({ slot, label: slot, active: true, time: "—" }));
+  const out: { slot: string; label: string; active: boolean; time: string; days?: number[] }[] =
+    slots.sort().map((slot) => ({ slot, label: slot, active: true, time: "—" }));
+
+  // Форматы, добавленные проекту в каталоге: план заводится сразу, ещё до
+  // первого ролика, — иначе темы некуда вписать заранее.
+  const added = await prisma.projectFormat.findMany({ where: { brand } });
+  for (const f of added) {
+    if (out.some((o) => o.slot === f.kind)) continue;
+    let cfg: any = {};
+    try { cfg = JSON.parse(f.config); } catch {}
+    const per = Number(cfg.schedule?.perWeek) || 0;
+    out.push({
+      slot: f.kind,
+      label: CATALOG.find((c) => c.kind === f.kind)?.name || f.kind,
+      active: per > 0,
+      time: (cfg.schedule?.times || [])[0] || "—",
+      days: per >= 7 ? [1, 2, 3, 4, 5, 6, 7] : per >= 5 ? [1, 2, 3, 4, 5] : per >= 3 ? [1, 3, 5] : [],
+    });
+  }
+  return out;
 }

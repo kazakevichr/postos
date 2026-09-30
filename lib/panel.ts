@@ -327,7 +327,7 @@ export async function panelData(brand: string) {
     }
   }
   return {
-    brand, label: brandLabel(brand), tz: "Europe/Moscow", now, bot: DELIVERY_BOT,
+    brand, label: await (await import("@/lib/brands")).brandTitle(brand), tz: "Europe/Moscow", now, bot: DELIVERY_BOT,
     // Кто решает, когда производить. У MoneyBall выбора нет — он построен
     // только под заказы; у остальных это переключается.
     orders: await ordersEnabled(brand),

@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { slugOf } from "@/lib/brands";
+export { slugOf };
 
 // upload-post: аккаунты публикации проекта — подключаются прямо из Постоса.
 //
@@ -96,18 +98,6 @@ async function call(brand: string, path: string, init: RequestInit = {}) {
 // Имя профиля в upload-post — латиница без пробелов, а человеку нужно
 // «Мужской» и «Футбол · English». Имя делаем из названия транслитом, само
 // название храним рядом.
-
-const TR: Record<string, string> = {
-  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i",
-  й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
-  у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "",
-  э: "e", ю: "yu", я: "ya",
-};
-
-export function slugOf(title: string): string {
-  const t = title.toLowerCase().split("").map((c) => TR[c] ?? c).join("");
-  return t.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
-}
 
 const titleKey = (username: string) => `upprofile:${username}`;
 

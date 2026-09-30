@@ -711,3 +711,33 @@ model TopicSource {
 
   @@unique([brand, kind])
 }
+
+// Формат, добавленный проекту через каталог. Живёт отдельно от пульта
+// работающих заводов: у СуперФита и MoneyBall форматы описаны их кодом, а
+// новому проекту формат заводится здесь — анкетой, лицом, голосом,
+// источником тем и расписанием. Статус говорит, где он на пути к запуску.
+model ProjectFormat {
+  id     Int      @id @default(autoincrement())
+  brand  String
+  kind   String // avatar | make | carousel | …
+  status String   @default("setup") // setup — настраивается · ready — всё заполнено · live — работает
+  config String   @default("{}") // лицо, голос, расписание, аккаунт
+  at     DateTime @default(now()) @updatedAt
+
+  @@unique([brand, kind])
+}
+
+// Файлы проекта, нужные заводу: фото лица, логотип, файлы базы знаний.
+// В базе, а не на диске: SQLite и так лежит в постоянном томе, а отдельную
+// папку пришлось бы не забыть при переезде.
+model ProjectAsset {
+  id    String   @id @default(cuid())
+  brand String
+  role  String // face_medium | face_close | logo | kb
+  name  String   @default("")
+  mime  String   @default("image/jpeg")
+  data  Bytes
+  at    DateTime @default(now())
+
+  @@index([brand, role])
+}

@@ -96,6 +96,7 @@ async function cellsFor(brand: string, dates: string[]): Promise<Cell[]> {
       const rule = (sched as any)[k.slot];
       const runs = rule?.slots?.filter((s: any) => (s.days || []).includes(wd)) || [];
       if (rule && rule.mode === "time" && runs.length === 0) continue;
+      if (k.days && !k.days.includes(wd)) continue;
       const key = `${date}|${k.slot}`;
       seen.add(key);
       const r = byKey.get(key);
