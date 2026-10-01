@@ -48,6 +48,9 @@ export default function FactoryAccounts({
   brand, channels, archived, canManage, bot, busy, put, togglePause,
 }: {
   brand: string;
+  // СуперФит выкладывает своими ключами площадок, остальные — через
+  // upload-post. Для вторых неподключённая в upload-post соцсеть значит, что
+  // автопубликация не сработает, и строка обязана сказать это прямо.
   channels: Channel[];
   archived: Channel[];
   canManage: boolean;
@@ -85,6 +88,7 @@ export default function FactoryAccounts({
     return () => document.removeEventListener("visibilitychange", again);
   }, [brand]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const viaUpload = brand !== "superfit";
   const profiles = useMemo(() => (up && !up.error ? up.profiles || [] : []), [up]);
   const same = (a: string, b: string[]) => Boolean(a) && b.some((x) => x && norm(x) === norm(a));
 
@@ -243,8 +247,20 @@ export default function FactoryAccounts({
               <div className="text-xs text-gray-500 truncate">
                 {r.st ? <>{fmt(r.st.followers)} подп.{d != null && d !== 0 && <span className={d > 0 ? "text-green-600" : "text-red-600"}> {d > 0 ? "▲ +" : "▼ "}{fmt(d)} за неделю</span>}</>
                   : r.ch ? "цифры не собираются" : r.conn?.connected ? "подключено" : "не подключено"}
-                {r.conn?.connected && r.ch && <span className="text-brand-700"> · ⚡ upload-post</span>}
+                {r.conn?.connected && r.ch && <span className="text-brand-700"> · ⚡ подключено</span>}
               </div>
+              {r.ch && viaUpload && g.prof && !r.conn?.connected && (
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="px-2 py-0.5 rounded-full bg-red-50 text-red-700">
+                    ⚠ не подключено — {r.ch.mode !== "manual" ? "автопубликация не сработает" : "выложить некуда"}
+                  </span>
+                  {canManage && (
+                    <button className="text-brand-700 hover:underline" disabled={mine === `link-${g.username}`} onClick={() => connect(g.username)}>
+                      Подключить {NAME[r.platform]}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
