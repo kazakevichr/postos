@@ -47,7 +47,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, profile: await addProfile(brand, String(b.title || "")) });
     }
     if (b.action === "link") {
-      const origin = new URL(req.url).origin;
+      // Адрес возврата — внешний. За прокси req.url видит внутренний
+      // http://localhost:3000, и upload-post отправлял человека туда.
+      const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+      const proto = req.headers.get("x-forwarded-proto") || "https";
+      const origin = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "")
+        || (host && !host.startsWith("localhost") ? `${proto}://${host}` : new URL(req.url).origin);
       const url = await connectLink(brand, String(b.username || ""), `${origin}/factory`);
       return NextResponse.json({ ok: true, url });
     }
