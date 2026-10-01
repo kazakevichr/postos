@@ -226,3 +226,39 @@ export async function removeProfile(brand: string, username: string) {
   await call(brand, "/uploadposts/users", { method: "DELETE", body: JSON.stringify({ username }) });
   await prisma.setting.deleteMany({ where: { key: titleKey(username) } });
 }
+
+// ── Публикация ────────────────────────────────────────────────────────────
+
+/**
+ * Выложить готовый ролик в площадки одного профиля. Ключ — Постоса: заводу
+ * его знать незачем, он отдаёт ролик сюда, а куда выкладывать, решают
+ * переключатели в блоке «Аккаунты».
+ *
+ * async_upload: upload-post сразу отвечает номером задания, а сам грузит в
+ * площадки после; ссылки на вышедшие посты появятся в его истории.
+ */
+export async function publishVideo(
+  brand: string, username: string, platforms: string[],
+  video: Blob, name: string, caption: string, title: string,
+): Promise<string> {
+  const key = upKey(brand);
+  if (!key) throw new Error(`для проекта «${brand}» не задан ключ upload-post`);
+  const f = new FormData();
+  f.append("user", username);
+  f.append("title", caption.slice(0, 2200));
+  for (const p of platforms) f.append("platform[]", p);
+  f.append("video", video, name);
+  f.append("async_upload", "true");
+  if (platforms.includes("youtube")) {
+    f.append("youtube_title", (title || caption.split("\n")[0] || brand).slice(0, 100));
+    f.append("youtube_description", caption.slice(0, 4900));
+    f.append("privacyStatus", "public");
+  }
+  if (platforms.includes("instagram")) f.append("media_type", "REELS");
+  if (platforms.includes("tiktok")) f.append("privacy_level", "PUBLIC_TO_EVERYONE");
+  const r = await fetch(`${API}/upload`, { method: "POST", headers: { authorization: `Apikey ${key}` }, body: f });
+  const d = await r.json().catch(() => ({}));
+  // 200 и success:false — отказ, а не успех.
+  if (!r.ok || d.success === false) throw new Error(String(d.message || d.error || `upload-post ответил ${r.status}`));
+  return String(d.request_id || d.job_id || "");
+}
