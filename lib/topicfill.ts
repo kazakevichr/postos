@@ -212,8 +212,8 @@ export async function fillMonth(brand: string, m: string) {
   return fillEmpty(brand, await monthCells(brand, m));
 }
 
-/** Ближайшие дни — то, что крутит расписание: завод не должен прийти к пустой клетке. */
-export async function fillAhead(brand: string, days = 3) {
+/** Неделя вперёд: завод не приходит к пустой клетке, а человек видит план заранее и успевает поправить. */
+export async function fillAhead(brand: string, days = 7) {
   const now = new Date();
   const monday = new Date(now);
   monday.setUTCDate(now.getUTCDate() - ((now.getUTCDay() || 7) - 1));
