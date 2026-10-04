@@ -19,6 +19,12 @@ const DAY = 24 * 60 * 60 * 1000;
 const dt = (d: Date | string) =>
   new Date(d).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 
+// Проекты, которые в Постосе ведутся только бухгалтерией. Оракл: его
+// контент-завод Роман выключил 04.10.2026, сайт и его сервисы — зона
+// партнёра. Ни кошельки, ни молчание завода, ни план тем по ним не поднимают
+// уведомлений: тревога, на которую здесь некому реагировать, — шум.
+const ACCOUNTING_ONLY = new Set(["oracle"]);
+
 async function safely(name: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -35,6 +41,7 @@ async function safely(name: string, fn: () => Promise<void>) {
 async function checkWallets() {
   const keep: string[] = [];
   for (const project of Object.keys(PROJECTS)) {
+    if (ACCOUNTING_ONLY.has(project)) continue;
     const rows = await wallets(project);
     for (const w of rows) {
       if (w.inactive) continue;
@@ -175,6 +182,7 @@ async function checkFactory() {
   const GENITIVE: Record<string, string> = { superfit: "СуперФита", oracle: "Оракла", [MONEYBALL]: "MoneyBall" };
   const LIMITS: Record<string, [number, number]> = { [MONEYBALL]: [1, 3] };
   for (const brand of ["superfit", "oracle", MONEYBALL]) {
+    if (ACCOUNTING_ONLY.has(brand)) continue;
     const own = DELIVERY_ONLY.has(brand);
     const last = await prisma.factoryJob.findFirst({
       where: { brand, event: { in: own ? ["опубликован", "готов"] : ["опубликован"] } },
@@ -240,19 +248,21 @@ async function checkPeople() {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  // MoneyBall сюда не входит: Новости и Прогнозы темы из плана не берут, а
-  // Персонаж без темы находит её сам. Напоминание о пустом плане было бы
-  // ложной тревогой.
-  for (const brand of ["superfit", "oracle"]) {
-    const ahead = await prisma.planSlot.count({ where: { brand, date: { gte: today } } });
-    if (ahead > 0 && ahead <= 3) {
-      const key = `plan:thin:${brand}`;
+  // План тем заполняет сам Постос (lib/topicfill, раз в шесть часов). Пустой
+  // план на ближайшие дни значит, что автозаполнение не сработало — источник
+  // сломан или кончились деньги на модели. Раньше здесь ловили «осталось
+  // 1–3 слота», а полностью пустой план молчал: октябрь у СуперФита стоял
+  // пустым, и завод падал с «не нашлось свежей темы» через день.
+  for (const brand of ["superfit", MONEYBALL]) {
+    const ahead = await prisma.planSlot.count({ where: { brand, date: { gte: today }, topic: { not: "" } } });
+    if (ahead === 0) {
+      const key = `plan:empty:${brand}`;
       keep.push(key);
       await raise({
-        key, kind: "plan", level: "info", brand,
-        title: `План тем ${brand === "oracle" ? "Оракла" : "СуперФита"} заканчивается: ${plural(ahead, "слот", "слота", "слотов")}`,
-        body: "Когда слоты кончатся, завод начнёт придумывать темы сам.",
-        href: "/factory", actionText: "К плану",
+        key, kind: "plan", level: "warn", brand,
+        title: `План тем ${brand === MONEYBALL ? "MoneyBall" : "СуперФита"} пуст`,
+        body: "На ближайшие дни нет ни одной темы: автозаполнение не сработало. Завод будет искать темы сам и может падать с «не нашлось свежей темы».",
+        href: "/plan", actionText: "К плану",
       });
     }
   }
