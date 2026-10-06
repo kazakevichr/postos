@@ -77,11 +77,13 @@ export async function GET() {
     const media: any[] = JSON.parse(r.media);
     accounts.push({
       id: `${r.platform}-${r.key}`,
-      platform: r.platform === "yt" ? "youtube" : "tiktok",
+      platform: r.platform === "yt" ? "youtube" : r.platform === "upig" ? "instagram" : "tiktok",
       // Бренд канала берём из BRAND_MAP по хэндлу или ключу: так аккаунты
       // СуперФита в TikTok/YouTube попадают в свой фильтр, а не в «Оракл».
       // Не указанные в карте каналы остаются оракловскими, как было.
-      brand: [p.handle, r.key]
+      // Каналы нашего аккаунта upload-post знают свой бренд сами — из имени
+      // профиля; остальные узнаём по карте хэндлов, как раньше.
+      brand: p.brand || [p.handle, r.key]
         .map((x: any) => brandFor(String(x || "").replace(/^@/, "")))
         .find((b: string) => b !== "other") || "oracle",
       username: p.handle || r.key,
@@ -102,6 +104,8 @@ export async function GET() {
         const prev: any = i > 0 ? history[i - 1] : null;
         const delta = (field: string) =>
           Math.max(0, (h[field] || 0) - (prev ? prev[field] || 0 : h[field] || 0));
+        // Instagram через upload-post приходит уже по дням — дельта не нужна.
+        if (r.platform === "upig") return h;
         if (r.platform === "yt") return { ...h, views: delta("views") };
         return {
           ...h,

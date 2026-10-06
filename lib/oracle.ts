@@ -206,6 +206,65 @@ async function collectTiktok(profileName: string, handle: string, avatar: string
   }, []);
 }
 
+// ── Наш аккаунт upload-post ────────────────────────────────────────────────
+// Соцсети, подключённые в блоке «Аккаунты» (профили на UPLOAD_POST_MAIN_KEY):
+// MoneyBall, СуперФит и новые проекты. Цифры берём у upload-post — у Instagram
+// после удаления аккаунтов СуперФита другого доступа нет. Строки ложатся в ту
+// же таблицу каналов, с ключом «up:<профиль>» и брендом из имени профиля
+// («superfit-igum-ai» → superfit), чтобы статистика и блок «Аккаунты» узнали
+// их сами.
+//
+// Instagram отдаёт дневной охват рядом (reach_timeseries) — его и пишем в
+// историю по дням; подписчики — только сегодняшним числом, прошлых upload-post
+// не хранит.
+const MAIN_KEY = (process.env.UPLOAD_POST_MAIN_KEY || "").trim();
+
+async function upGet(key: string, path: string) {
+  const r = await fetch(`https://api.upload-post.com/api${path}`, { headers: { authorization: `Apikey ${key}` } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.success === false) throw new Error(`upload-post ${path}: ${String(d.message || r.status).slice(0, 120)}`);
+  return d;
+}
+
+async function collectOwnInstagram(profileName: string, acc: any, date: string) {
+  const d = await upGet(MAIN_KEY, `/analytics/${encodeURIComponent(profileName)}?platforms=instagram`);
+  const ig = d.instagram;
+  if (!ig || ig.error) throw new Error(`${profileName}: instagram-аналитика не пришла`);
+  const handle = String(acc.handle || acc.username || profileName).replace(/^@/, "");
+  const key = `up:${profileName}`;
+  const profile = {
+    title: `@${handle}`, handle, avatar: acc.social_images || null,
+    followers: ig.followers ?? null, url: `https://instagram.com/${handle}`,
+    brand: profileName.split("-")[0], via: "upload-post",
+  };
+  const row = await prisma.oracleChannel.findUnique({ where: { platform_key: { platform: "upig", key } } });
+  const byDate = new Map<string, any>((row ? JSON.parse(row.history) : []).map((h: any) => [h.date, h]));
+  for (const t of ig.reach_timeseries || []) {
+    if (!t?.date) continue;
+    byDate.set(t.date, { ...(byDate.get(t.date) || {}), date: t.date, views: Math.round(t.value || 0), reach: Math.round(t.value || 0) });
+  }
+  byDate.set(date, { ...(byDate.get(date) || { date }), followers: ig.followers ?? null });
+  const history = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-365);
+  const fields = { profile: JSON.stringify(profile), history: JSON.stringify(history), media: row?.media || "[]" };
+  await prisma.oracleChannel.upsert({
+    where: { platform_key: { platform: "upig", key } },
+    create: { platform: "upig", key, ...fields },
+    update: fields,
+  });
+}
+
+async function collectOwn(date: string, summary: { channels: number; errors: string[] }) {
+  if (!MAIN_KEY) return;
+  const users = await upGet(MAIN_KEY, "/uploadposts/users");
+  for (const p of users.profiles || []) {
+    const ig = p.social_accounts?.instagram;
+    if (ig && typeof ig === "object") {
+      try { await collectOwnInstagram(p.username, ig, date); summary.channels++; }
+      catch (e: any) { summary.errors.push(e.message); }
+    }
+  }
+}
+
 export async function runOracleCollect() {
   const date = new Date().toISOString().slice(0, 10);
   const summary = { date, channels: 0, errors: [] as string[] };
@@ -238,6 +297,7 @@ export async function runOracleCollect() {
   } else {
     summary.errors.push("UPLOAD_POST_KEY не задан — TikTok пропущен");
   }
+  try { await collectOwn(date, summary); } catch (e: any) { summary.errors.push(e.message); }
   return summary;
 }
 

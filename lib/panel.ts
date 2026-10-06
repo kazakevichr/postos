@@ -103,7 +103,12 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       // Выдача уезжает в заказ полем deliver_bot, и завод её слушает.
       // Согласования у MoneyBall нет вовсе.
       bot: set.bot, approval: set.approval, off: false,
-      routes: [] as PanelRoute[], canSchedule: true, canProduce: true,
+      // Готовый ролик заказа MoneyBall Постос выкладывает во все соцсети с
+      // открытым выходом (/api/factory/publish) — своих маршрутов по
+      // форматам у этого завода нет. Без этой строки пульт писал «только в
+      // бот: каналы выключены», хотя Instagram был открыт и подключён.
+      routes: channels.map((c) => ({ ch: c.key, on: !c.paused, state: c.state, word: WORD[c.state] || c.state })) as PanelRoute[],
+      canSchedule: true, canProduce: true,
     };
     formats.push({ ...base, ...warnOf(base, channels.length > 0, botOn) });
   }
