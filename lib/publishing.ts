@@ -27,6 +27,15 @@ export async function publishStates(
     return r ? new Date(r.at).toLocaleDateString("ru-RU", { day: "numeric", month: "long" }) : "";
   };
 
+  // Соцсети из блока «Аккаунты» (каналы пульта). Матрица маршрутов знает
+  // только площадки СуперФита, и всё остальное — Instagram MoneyBall,
+  // подключённый в upload-post и включённый на автопубликацию, — называлось
+  // «не заводским». Канал отвечает на тот же вопрос сам: открыт ли выход и кто
+  // выкладывает.
+  const norm = (x: string) => String(x || "").toLowerCase().replace(/^@/, "").replace(/\s+/g, "");
+  const channels = await prisma.channel.findMany({ where: { archived: false } });
+  const channelOf = (u: string) => channels.find((c) => c.account && norm(c.account) === norm(u));
+
   const out: Record<string, PublishState> = {};
   for (const a of accounts) {
     const platform = platformFor(a.username);
@@ -43,6 +52,22 @@ export async function publishStates(
           source: "Постос · архив",
         },
       };
+      continue;
+    }
+
+    const ch = !platform ? channelOf(a.username) : undefined;
+    if (ch && !suspicious) {
+      out[a.username] = ch.paused
+        ? { publishes: false, suspicious: false, reason: {
+            title: "Выход закрыт",
+            body: "В блоке «Аккаунты» выключено «Выпускаем сюда»: ролики в эту соцсеть не идут.",
+            source: "Постос · Контент-завод → Аккаунты" } }
+        : ch.mode === "manual"
+          ? { publishes: false, suspicious: false, reason: {
+              title: "Выкладываете вы",
+              body: "Автопубликация выключена: готовый ролик приходит в бот, в соцсеть его выкладывает человек.",
+              source: "Постос · Контент-завод → Аккаунты" } }
+          : { publishes: true, suspicious: false, reason: null };
       continue;
     }
 

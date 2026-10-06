@@ -219,6 +219,8 @@ export default function SocialDashboard({
   }, [accounts, edgeDate, topDate]);
 
   const factoryStatus = useMemo(() => {
+    // Плашка про Instagram-завод СуперФита: у других проектов ей не место.
+    if (only && !only.includes("superfit")) return null;
     if (platform !== "all" && platform !== "instagram") return null;
     if (brand !== "all" && brand !== "superfit") return null;
     const last = posts
@@ -228,7 +230,7 @@ export default function SocialDashboard({
     const hours = Math.round((Date.now() - +new Date(last)) / 36e5);
     const when = hours < 1 ? "меньше часа назад" : hours < 24 ? `${hours} ч назад` : `${Math.round(hours / 24)} дн назад`;
     return { text: `последний пост ${when}`, ok: hours <= 36 };
-  }, [posts, platform, brand]);
+  }, [posts, platform, brand, only]);
 
   const maxViews = Math.max(1, ...posts.slice(0, 120).map((p) => p.views || 0));
   const byDay: [string, any[]][] = useMemo(() => {
