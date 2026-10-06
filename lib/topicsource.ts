@@ -23,6 +23,7 @@ export type TopicWay = {
   fixed: boolean; // сейчас работает источник, зашитый в код завода
   engine: { title: string; detail: string } | null; // что умеет сам завод — вариант «как у завода»
   config: any;
+  editable?: boolean; // можно ли сменить источник: формат берёт тему из плана
 };
 
 const ENGINE: Record<string, Record<string, { type: string; title: string; detail: string }>> = {

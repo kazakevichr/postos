@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_BRAND, factoryAuth } from "@/lib/factory";
 import { channelsOf } from "@/lib/channels";
-import { accounts, publishVideo } from "@/lib/uploadpost";
+import { accounts, publishPhotos, publishVideo } from "@/lib/uploadpost";
 import { raise } from "@/lib/notices";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,8 @@ export const dynamic = "force-dynamic";
 
 const PLATFORM: Record<string, string> = { TT: "tiktok", YT: "youtube", IG: "instagram" };
 const LABEL: Record<string, string> = { tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram" };
+// Карусель картинками берут только эти площадки: YouTube постов из фото нет.
+const PHOTO_OK = ["instagram", "tiktok"];
 
 export async function POST(req: Request) {
   const brand = factoryAuth(req);
@@ -29,7 +31,8 @@ export async function POST(req: Request) {
   }
   const form = await req.formData();
   const video = form.get("video") as File | null;
-  if (!video) return NextResponse.json({ error: "нет файла video" }, { status: 400 });
+  const photos = (form.getAll("photos") as File[]).filter((x) => x && typeof x !== "string");
+  if (!video && !photos.length) return NextResponse.json({ error: "нет ни video, ни photos" }, { status: 400 });
   const caption = String(form.get("caption") || "");
   const title = String(form.get("title") || "");
   const kind = String(form.get("kind") || "");
@@ -58,6 +61,7 @@ export async function POST(req: Request) {
     const name = `${LABEL[platform]} ${c.account || c.title}`.trim();
     if (!prof) { skipped.push({ account: name, why: `аккаунта «${user}» нет в upload-post` }); continue; }
     if (!conn?.connected) { skipped.push({ account: name, why: `${LABEL[platform]} не подключён в аккаунте «${prof.title}»` }); continue; }
+    if (!video && !PHOTO_OK.includes(platform)) { skipped.push({ account: name, why: `${LABEL[platform]} не принимает карусели из картинок` }); continue; }
     const list = byProfile.get(user) || [];
     if (!list.includes(platform)) list.push(platform);
     byProfile.set(user, list);
@@ -66,7 +70,9 @@ export async function POST(req: Request) {
   const sent: { profile: string; platforms: string[]; request: string }[] = [];
   for (const [user, platforms] of byProfile) {
     try {
-      const request = await publishVideo(brand, user, platforms, video, video.name || "video.mp4", caption, title);
+      const request = video
+        ? await publishVideo(brand, user, platforms, video, video.name || "video.mp4", caption, title)
+        : await publishPhotos(brand, user, platforms, photos.map((p) => ({ blob: p, name: p.name || "slide.png" })), caption);
       sent.push({ profile: user, platforms, request });
     } catch (e: any) {
       for (const p of platforms) skipped.push({ account: `${LABEL[p]} (${user})`, why: String(e?.message || e) });

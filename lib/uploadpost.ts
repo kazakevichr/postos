@@ -262,3 +262,22 @@ export async function publishVideo(
   if (!r.ok || d.success === false) throw new Error(String(d.message || d.error || `upload-post ответил ${r.status}`));
   return String(d.request_id || d.job_id || "");
 }
+
+/** Карусель — картинками, одним постом. Принимают Instagram и TikTok. */
+export async function publishPhotos(
+  brand: string, username: string, platforms: string[],
+  photos: { blob: Blob; name: string }[], caption: string,
+): Promise<string> {
+  const key = upKey(brand);
+  if (!key) throw new Error(`для проекта «${brand}» не задан ключ upload-post`);
+  const f = new FormData();
+  f.append("user", username);
+  f.append("title", caption.slice(0, 2200));
+  for (const p of platforms) f.append("platform[]", p);
+  for (const ph of photos) f.append("photos[]", ph.blob, ph.name);
+  f.append("async_upload", "true");
+  const r = await fetch(`${API}/upload_photos`, { method: "POST", headers: { authorization: `Apikey ${key}` }, body: f });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.success === false) throw new Error(String(d.message || d.error || `upload-post ответил ${r.status}`));
+  return String(d.request_id || d.job_id || "");
+}

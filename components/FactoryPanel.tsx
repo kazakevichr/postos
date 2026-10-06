@@ -23,7 +23,7 @@ type Slot = { days: number[]; time: string };
 type Route = { ch: string; on: boolean; state: string; word: string };
 type Format = {
   kind: string; label: string; note: string; mode: string;
-  topics?: { type: string; title: string; detail: string; fixed: boolean; engine: { title: string; detail: string } | null; config: any };
+  topics?: { type: string; title: string; detail: string; fixed: boolean; engine: { title: string; detail: string } | null; config: any; editable?: boolean };
   slots: Slot[]; when: string; week: number; next: string; publish: string;
   bot: boolean; approval: boolean; off: boolean;
   routes: Route[]; warn: string; wontRun: boolean; canSchedule: boolean; canProduce: boolean;
@@ -568,7 +568,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                 {f.topics && (
                   <section>
                     <h3 className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Откуда темы</h3>
-                    {canManage ? (
+                    {canManage && f.topics.editable !== false ? (
                       <SourcePicker key={`${f.kind}:${f.topics.type}`}
                         current={f.topics.fixed ? null : { type: f.topics.type, config: f.topics.config }}
                         engine={f.topics.engine} assets={assets} canEdit={canManage} busy={busy === `src-${f.kind}`}
@@ -579,12 +579,12 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                         <p className="text-gray-500 mt-0.5">{f.topics.detail}</p>
                       </div>
                     )}
-                    <p className="text-xs text-gray-400 mt-1.5">
+                    {f.topics.editable !== false && <p className="text-xs text-gray-400 mt-1.5">
                       {f.topics.fixed
                         ? "Сейчас темы берёт сам завод. Выберете другой источник — Постос будет заранее вписывать темы в план, а завод возьмёт тему из плана."
                         : "Постос заранее вписывает темы в план из этого источника."}
                       {" "}Тема, вписанная в <a href="/plan" className="text-brand-700 hover:underline">контент-план</a> руками, всегда важнее.
-                    </p>
+                    </p>}
                   </section>
                 )}
                 <section>

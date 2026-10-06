@@ -122,7 +122,10 @@ async function moneyballPanel(now: ReturnType<typeof msk>) {
       kind: e.kind, label: e.label, note: e.note, event: e.event,
       mode: "event" as const, slots: [], when: e.when, week: 0, next: "", publish: "сразу",
       bot: set.bot, approval: false, off: set.off,
-      routes: [] as PanelRoute[], canSchedule: false, canProduce: true,
+      // Итоги — карусель картинками: Постос выкладывает её в открытые
+      // Instagram и TikTok (YouTube картинок не берёт).
+      routes: channels.filter((c) => c.net !== "YT").map((c) => ({ ch: c.key, on: !c.paused, state: c.state, word: WORD[c.state] || c.state })) as PanelRoute[],
+      canSchedule: false, canProduce: true,
     };
     const w = warnOf(base, channels.length > 0, botOn);
     // Выключенный формат не выйдет, но предупреждать о нём незачем: это
@@ -328,7 +331,16 @@ export async function panelData(brand: string) {
   if (body?.groups) {
     const { topicWay } = await import("@/lib/topicsource");
     for (const g of body.groups as any[]) {
-      for (const f of g.formats || []) f.topics = await topicWay(brand, f.kind);
+      for (const f of g.formats || []) {
+        f.topics = await topicWay(brand, f.kind);
+        // Менять источник имеет смысл только там, где завод берёт тему из
+        // плана. Новости MoneyBall разбирают ролик донора, Прогнозы — матчи
+        // Оракла, Итоги — вчерашние Прогнозы, нарезки — ролик донора: план они
+        // не читают, и выбор «по анкете» у них был бы бутафорией.
+        f.topics.editable = brand === MONEYBALL
+          ? Boolean(MB_FORMATS.find((x: any) => x.kind === f.kind)?.fromPlan)
+          : !(f.kind.startsWith("repost") || f.kind === "manual");
+      }
     }
   }
   return {
