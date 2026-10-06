@@ -245,12 +245,52 @@ async function collectOwnInstagram(profileName: string, acc: any, date: string) 
   }
   byDate.set(date, { ...(byDate.get(date) || { date }), followers: ig.followers ?? null });
   const history = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-365);
-  const fields = { profile: JSON.stringify(profile), history: JSON.stringify(history), media: row?.media || "[]" };
+  const posts = await ownPosts(profileName, "instagram").catch(() => [] as any[]);
+  const media = mergeMedia(row ? JSON.parse(row.media) : [], posts);
+  const fields = { profile: JSON.stringify(profile), history: JSON.stringify(history), media: JSON.stringify(media) };
   await prisma.oracleChannel.upsert({
     where: { platform_key: { platform: "upig", key } },
     create: { platform: "upig", key, ...fields },
     update: fields,
   });
+}
+
+// Посты, вышедшие через upload-post, — для списка «Публикации». Цифры поста
+// upload-post отдаёт по номеру загрузки (post-analytics/<request_id>); посты,
+// выложенные руками мимо него, здесь не видны. Обложки он не отдаёт —
+// в списке у них значок ▶ и ссылка на сам пост.
+//
+// Берём последние 30 дней: старые посты почти не растут, а каждый пост —
+// отдельный запрос.
+async function ownPosts(profileName: string, platform: string): Promise<any[]> {
+  const since = Date.now() - 30 * 86400e3;
+  const rows: any[] = [];
+  for (const page of [1, 2, 3]) {
+    const h = await upGet(MAIN_KEY, `/uploadposts/history?limit=50&page=${page}`);
+    const list: any[] = h.history || [];
+    rows.push(...list.filter((e) => e.profile_username === profileName && e.platform === platform && e.success && e.post_url));
+    if (list.length < 50 || list.some((e) => +new Date(e.upload_timestamp) < since)) break;
+  }
+  const out: any[] = [];
+  for (const e of rows.filter((x) => +new Date(x.upload_timestamp) >= since).slice(0, 40)) {
+    let m: any = {};
+    try {
+      const a = await upGet(MAIN_KEY, `/uploadposts/post-analytics/${encodeURIComponent(e.request_id)}`);
+      m = a.platforms?.[platform]?.post_metrics || {};
+    } catch { /* цифр ещё нет — пост всё равно показываем */ }
+    out.push({
+      id: String(e.platform_post_id || e.request_id),
+      permalink: e.post_url,
+      caption: String(e.post_caption || e.post_title || "").slice(0, 500),
+      timestamp: new Date(e.upload_timestamp).toISOString(),
+      type: m.media_product_type || (e.media_type === "video" ? "REELS" : "CAROUSEL"),
+      thumbnail: null,
+      views: m.views ?? null, reach: m.reach ?? null, likes: m.likes ?? 0,
+      comments: m.comments ?? 0, saved: m.saves ?? null, shares: m.shares ?? null,
+      source: "factory",
+    });
+  }
+  return out;
 }
 
 async function collectOwn(date: string, summary: { channels: number; errors: string[] }) {
