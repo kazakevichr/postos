@@ -108,6 +108,20 @@ async function titles(usernames: string[]): Promise<Record<string, string>> {
   return Object.fromEntries(rows.map((r) => [r.key.slice("upprofile:".length), r.value]));
 }
 
+// ── Основной профиль ──────────────────────────────────────────────────────
+// По умолчанию основной — профиль с именем бренда («superfit»). Но имя
+// профиля upload-post не меняется, а подключение соцсети между профилями не
+// переносится. 07.10.2026 Instagram СуперФита (igum.ai) подключили в
+// отдельный профиль «superfit-igum-ai», а «superfit» остался пустым, и в
+// блоке «Аккаунты» один и тот же аккаунт выглядел двумя. Поэтому основной
+// можно назначить: Setting `upmain:<бренд>` = имя профиля.
+const mainKey = (brand: string) => `upmain:${brand}`;
+
+export async function mainOf(brand: string): Promise<string> {
+  const row = await prisma.setting.findUnique({ where: { key: mainKey(brand) } });
+  return row?.value || brand;
+}
+
 // ── Чтение ────────────────────────────────────────────────────────────────
 
 export type Connection = { platform: string; label: string; connected: boolean; handle: string };
@@ -134,6 +148,7 @@ export async function accounts(brand: string): Promise<Accounts> {
   const all: any[] = users.profiles || [];
   const mine = all.filter((p) => belongs(brand, String(p.username || "")));
   const names = await titles(mine.map((p) => p.username));
+  const main = await mainOf(brand);
   const plan = String(me.plan || "");
   return {
     plan,
@@ -144,8 +159,8 @@ export async function accounts(brand: string): Promise<Accounts> {
     profiles: mine
       .map((p) => ({
         username: p.username,
-        title: names[p.username] || (p.username === brand ? "Основной" : p.username),
-        main: p.username === brand,
+        title: names[p.username] || (p.username === main ? "Основной" : p.username),
+        main: p.username === main,
         platforms: parseConnections(p.social_accounts),
       }))
       .sort((a, b) => Number(b.main) - Number(a.main) || a.title.localeCompare(b.title, "ru")),
@@ -218,7 +233,7 @@ export async function connectLink(brand: string, username: string, redirect: str
  */
 export async function removeProfile(brand: string, username: string) {
   if (!belongs(brand, username)) throw new Error("этот профиль не принадлежит проекту");
-  if (username === brand) throw new Error("основной профиль не удаляется — в него публикует завод");
+  if (username === (await mainOf(brand))) throw new Error("основной профиль не удаляется — в него публикует завод");
   const state = await accounts(brand);
   const p = state.profiles.find((x) => x.username === username);
   if (!p) throw new Error("профиль не найден");
