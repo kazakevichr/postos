@@ -240,6 +240,7 @@ export async function removeProfile(brand: string, username: string) {
 export async function publishVideo(
   brand: string, username: string, platforms: string[],
   video: Blob, name: string, caption: string, title: string,
+  cover?: Blob | null,
 ): Promise<string> {
   const key = upKey(brand);
   if (!key) throw new Error(`для проекта «${brand}» не задан ключ upload-post`);
@@ -256,6 +257,14 @@ export async function publishVideo(
   }
   if (platforms.includes("instagram")) f.append("media_type", "REELS");
   if (platforms.includes("tiktok")) f.append("privacy_level", "PUBLIC_TO_EVERYONE");
+  // Обложка: без неё площадка берёт случайный кадр. У каждой площадки своё
+  // поле: Instagram — cover_image (JPEG до 8 МБ), TikTok — tiktok_cover_image,
+  // YouTube — thumbnail (до 2 МБ). Завод присылает JPEG до 2 МБ — годится всем.
+  if (cover) {
+    if (platforms.includes("instagram")) f.append("cover_image", cover, "cover.jpg");
+    if (platforms.includes("tiktok")) f.append("tiktok_cover_image", cover, "cover.jpg");
+    if (platforms.includes("youtube")) f.append("thumbnail", cover, "cover.jpg");
+  }
   const r = await fetch(`${API}/upload`, { method: "POST", headers: { authorization: `Apikey ${key}` }, body: f });
   const d = await r.json().catch(() => ({}));
   // 200 и success:false — отказ, а не успех.

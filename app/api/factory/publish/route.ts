@@ -32,6 +32,8 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const video = form.get("video") as File | null;
   const photos = (form.getAll("photos") as File[]).filter((x) => x && typeof x !== "string");
+  const coverRaw = form.get("cover");
+  const cover = coverRaw && typeof coverRaw !== "string" ? (coverRaw as File) : null;
   if (!video && !photos.length) return NextResponse.json({ error: "нет ни video, ни photos" }, { status: 400 });
   const caption = String(form.get("caption") || "");
   const title = String(form.get("title") || "");
@@ -71,7 +73,7 @@ export async function POST(req: Request) {
   for (const [user, platforms] of byProfile) {
     try {
       const request = video
-        ? await publishVideo(brand, user, platforms, video, video.name || "video.mp4", caption, title)
+        ? await publishVideo(brand, user, platforms, video, video.name || "video.mp4", caption, title, cover)
         : await publishPhotos(brand, user, platforms, photos.map((p) => ({ blob: p, name: p.name || "slide.png" })), caption);
       sent.push({ profile: user, platforms, request });
     } catch (e: any) {
