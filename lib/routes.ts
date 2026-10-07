@@ -138,12 +138,23 @@ export function blocked(platform: string, kind: string): boolean {
   return (NA[b] || []).includes(platform) || (LOCKED[b] || []).includes(platform);
 }
 
+// Площадки матрицы: прежний список плюс каналы СуперФита из блока
+// «Аккаунты». 07.10.2026 подключили Instagram igum.ai — новый канал, которого
+// в списке выше нет. Его переключатель записывался в базу, но матрица его не
+// читала: пульт тут же показывал «выключено», а заводу отвечал «нельзя».
+async function platformKeys(): Promise<string[]> {
+  const chans = await prisma.channel.findMany({
+    where: { brand: "superfit", archived: false }, select: { key: true },
+  });
+  return [...new Set([...PLATFORMS.map((p) => p.key), ...chans.map((c) => c.key)])];
+}
+
 export async function routeMap() {
   const rows = await prisma.routeFlag.findMany();
   const saved = new Map(rows.map((r) => [`${r.platform}|${r.kind}`, r.enabled]));
   const flags: Record<string, boolean> = {};
   const kinds = await kindsWithDonors();
-  for (const p of PLATFORMS) {
+  for (const p of (await platformKeys()).map((key) => ({ key }))) {
     flags[`${p.key}|*`] = saved.get(`${p.key}|*`) ?? true;
     for (const k of kinds) {
       if (blocked(p.key, k.kind)) continue;
