@@ -252,6 +252,23 @@ export async function removeProfile(brand: string, username: string) {
  * async_upload: upload-post сразу отвечает номером задания, а сам грузит в
  * площадки после; ссылки на вышедшие посты появятся в его истории.
  */
+/**
+ * ОТМЕТКА «СДЕЛАНО ИИ» СТАВИТСЯ ВСЕГДА — решение Романа 08.10.2026.
+ *
+ * Это не текст в подписи, а флаг площадки: upload-post принимает один
+ * `is_ai_generated` и сам раскладывает его по родным полям — TikTok
+ * `is_aigc`, YouTube `containsSyntheticMedia`, Instagram `is_ai_generated`,
+ * X `made_with_ai`, Facebook Reels `facebook_is_ai_generated`. Площадка
+ * рисует плашку сама, и её алгоритмы считают это честным раскрытием, в
+ * отличие от хештега в тексте. LinkedIn и Pinterest поля не дают вовсе —
+ * там раскрытие идёт через C2PA и собственные классификаторы.
+ *
+ * Почему без выключателя. Через эти две функции проходит ТОЛЬКО контент
+ * заводов (единственный вызывающий — app/api/factory/publish): ведущий
+ * оживлён нейросетью, голос синтезирован, обложка часто нарисована. Ручные
+ * публикации сюда не попадают, поэтому условие «ставить или нет» было бы
+ * условием, которое всегда истинно.
+ */
 export async function publishVideo(
   brand: string, username: string, platforms: string[],
   video: Blob, name: string, caption: string, title: string,
@@ -265,6 +282,7 @@ export async function publishVideo(
   for (const p of platforms) f.append("platform[]", p);
   f.append("video", video, name);
   f.append("async_upload", "true");
+  f.append("is_ai_generated", "true");
   if (platforms.includes("youtube")) {
     f.append("youtube_title", (title || caption.split("\n")[0] || brand).slice(0, 100));
     f.append("youtube_description", caption.slice(0, 4900));
@@ -300,6 +318,7 @@ export async function publishPhotos(
   for (const p of platforms) f.append("platform[]", p);
   for (const ph of photos) f.append("photos[]", ph.blob, ph.name);
   f.append("async_upload", "true");
+  f.append("is_ai_generated", "true");
   const r = await fetch(`${API}/upload_photos`, { method: "POST", headers: { authorization: `Apikey ${key}` }, body: f });
   const d = await r.json().catch(() => ({}));
   if (!r.ok || d.success === false) throw new Error(String(d.message || d.error || `upload-post ответил ${r.status}`));
