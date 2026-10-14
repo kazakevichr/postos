@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnketaForm, Choice, SourcePicker, State, StatusPill, api, upload } from "@/components/formatsUi";
+import HostSetup from "@/components/HostSetup";
 
 // Настройка формата у проекта — по шагам. Каждый шаг сохраняется сам по
 // себе: можно уйти посреди и вернуться, заполненное не пропадёт.
@@ -59,6 +60,8 @@ export default function FormatSetup({ kind }: { kind: string }) {
     );
   }
 
+  // Ведущий — свой мастер: фото с проверкой, голос через завод, пробный выпуск.
+  if (kind === "host") return <HostSetup s={s} reload={load} />;
   const cfg = f.added.config || {};
   const steps = f.added.steps;
   const idx = steps.findIndex((x) => x.step === step);

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Файлы проекта: фото лица, логотип. Загрузка — с правом изменения, показ —
 // всему блоку СММ своего направления.
-const ROLES = ["face_medium", "face_close", "logo", "kb"];
+const ROLES = ["face_medium", "face_close", "logo", "kb", "host_photo"];
 // База знаний — несколько файлов (гайды, статьи); фото и логотип — по одному.
 const MANY = ["kb"];
 const KB_MIME = /^(text\/|application\/(pdf|json|msword|vnd\.openxmlformats))/;

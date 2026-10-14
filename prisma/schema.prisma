@@ -466,6 +466,9 @@ model FactoryOrder {
   // Спросить ли «да» перед сборкой. Завод пишет текст, присылает его сюда и
   // ждёт ответа: без «да» ролик не собирается и деньги не тратятся.
   approval   Boolean   @default(false)
+  // Пробный выпуск нового формата: собирается сразу, в соцсети не выкладывается,
+  // готовый ролик приходит в мастер на «Утвердить».
+  trial      Boolean   @default(false)
   // Отказ бывает двух видов. «Отклонить» — не надо вовсе, и разобранные матчи
   // возвращаются в пул. «Другие матчи» — надо, но не про это: матчи остаются
   // помеченными, и Постос сразу заводит новый заказ.
@@ -741,4 +744,22 @@ model ProjectAsset {
   at    DateTime @default(now())
 
   @@index([brand, role])
+}
+
+// Служебная задача новому заводу (content-factory): то, что Постос сам сделать
+// не может, потому что ключи сервисов живут на заводе. Добавить голос из
+// библиотеки ElevenLabs в наш аккаунт, озвучить пробную фразу. Завод забирает
+// задачи опросом и отвечает результатом.
+model EngineTask {
+  id     String    @id @default(cuid())
+  brand  String
+  kind   String // voice — проверить голос и озвучить пробную фразу
+  input  String    @default("{}")
+  state  String    @default("new") // new → taken → done | fail
+  result String    @default("{}")
+  error  String    @default("")
+  at     DateTime  @default(now())
+  doneAt DateTime?
+
+  @@index([state])
 }

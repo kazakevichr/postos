@@ -18,17 +18,21 @@ export const dynamic = "force-dynamic";
 // Что уже делают работающие заводы. Их форматы описаны их кодом и живут в
 // пульте; сюда — только чтобы не предлагать добавить то, что и так работает.
 const RUNNING: Record<string, string[]> = {
-  superfit: ["make", "carousel", "carousel_new", "trainer", "avatar", "repost"],
-  moneyball: ["news", "forecast", "recap", "make"],
+  superfit: ["host", "carousel", "character", "cuts"],
+  moneyball: ["host", "carousel", "character"],
 };
 
 // Что должно быть заполнено, чтобы формат считался готовым к запуску.
 function readiness(kind: string, cfg: any, anketa: boolean, source: boolean) {
   const f = CATALOG.find((x) => x.kind === kind);
   const need: Record<string, boolean> = {
+    // Ведущий: шаги мастера hostSetup. Материал считается заполненным и без
+    // выбора: по умолчанию темы придумываются по анкете.
+    photo: Boolean(cfg.photo?.asset), material: true,
+    video: Boolean(cfg.video?.min && cfg.video?.max),
     brief: anketa, source,
     face: Boolean(cfg.face?.medium && cfg.face?.close) || Boolean(cfg.face?.persona),
-    voice: Boolean(cfg.voice),
+    voice: Boolean(cfg.voice?.id || (typeof cfg.voice === "string" && cfg.voice)),
     schedule: Boolean(cfg.schedule?.perWeek && (cfg.schedule?.times || []).length),
   };
   const steps = (f?.steps || []).map((s) => ({ step: s, done: Boolean(need[s]) }));
