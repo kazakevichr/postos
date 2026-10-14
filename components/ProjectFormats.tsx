@@ -54,4 +54,4 @@ export default function ProjectFormats({ label }: { label: string }) {
   );
 }
 
-const STEP_NAME: Record<string, string> = { brief: "анкета", source: "источник тем", face: "лицо", voice: "голос", schedule: "расписание" };
+const STEP_NAME: Record<string, string> = { brief: "анкета", source: "источник тем", face: "лицо", voice: "голос", schedule: "расписание", photo: "фото ведущего", material: "материал", video: "вид ролика" };

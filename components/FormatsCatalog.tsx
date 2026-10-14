@@ -193,7 +193,16 @@ export default function FormatsCatalog() {
 
               <div className="pt-1">
                 {cur.running ? (
-                  <a href="/factory" className="btn btn-secondary">Уже работает — открыть пульт</a>
+                  <div className="flex flex-wrap gap-2">
+                    <a href="/factory" className="btn btn-secondary">Уже работает — открыть пульт</a>
+                    {/* Ведущий у старых заводов собран по-своему; новый — через мастер и завод content-factory. */}
+                    {cur.kind === "host" && (cur.added
+                      ? <a href="/formats/host" className="btn btn-primary">Новый ведущий →</a>
+                      : s.canEdit && <button className="btn btn-primary" disabled={busy === cur.kind}
+                          onClick={() => add(cur.kind)}>
+                          {busy === cur.kind ? "Добавляю…" : "Создать нового ведущего"}
+                        </button>)}
+                  </div>
                 ) : cur.added ? (
                   <a href={`/formats/${cur.kind}`} className="btn btn-primary">Настроить →</a>
                 ) : cur.blocked ? (

@@ -23,6 +23,11 @@ import { ownerWithTg, sendTo } from "@/lib/telegram";
 import { blocked, routeMap } from "@/lib/routes";
 import { channelsOf } from "@/lib/channels";
 
+// Заказы нового завода content-factory (формат «Ведущий») живут в той же
+// таблице, но старые заводы СуперФита и MoneyBall их не видят: они забирают
+// любой заказ своего бренда и собрали бы чужой формат своим конвейером.
+const ENGINE_KIND = "host";
+
 /** Расписание заводов живёт в московском времени — один сдвиг на всё. */
 const MSK_MS = 3 * 60 * 60 * 1000;
 /** Сколько заказ ждёт завода. Дальше он уже не нужен: Новости в 09:00,
@@ -80,7 +85,7 @@ export async function setOrders(brand: string, on: boolean) {
   // Вернули завод на старый путь — незабранные заказы убираем. Иначе они
   // доживут до конца запаса и лягут в журнал пропусками, которых не было:
   // завод в это время работал по своему расписанию.
-  if (!on) await prisma.factoryOrder.deleteMany({ where: { brand, state: "план" } });
+  if (!on) await prisma.factoryOrder.deleteMany({ where: { brand, state: "план", kind: { not: ENGINE_KIND } } });
 }
 
 export async function orderBrands() {
@@ -225,7 +230,7 @@ export async function refresh(brand: string, now = new Date()) {
   }
 
   // Заказ, который никто не забрал за запас времени: завода не было на связи.
-  const stalePlan = await prisma.factoryOrder.findMany({ where: { brand, state: "план" } });
+  const stalePlan = await prisma.factoryOrder.findMany({ where: { brand, state: "план", kind: { not: ENGINE_KIND } } });
   for (const o of stalePlan) {
     if ((now.getTime() - slotAt(o.date, o.at)) / 60000 <= GRACE_MIN) continue;
     await prisma.factoryOrder.update({ where: { id: o.id }, data: { state: "пропущен", doneAt: now } });
@@ -234,7 +239,7 @@ export async function refresh(brand: string, now = new Date()) {
 
   // Текст, который остался без ответа. Закрываем пропуском, а не отказом:
   // отказ — это решение человека, а здесь решения не было.
-  const unanswered = await prisma.factoryOrder.findMany({ where: { brand, state: "на согласовании" } });
+  const unanswered = await prisma.factoryOrder.findMany({ where: { brand, state: "на согласовании", kind: { not: ENGINE_KIND } } });
   for (const o of unanswered) {
     if (!o.takenAt || (now.getTime() - +o.takenAt) / 60000 <= WAIT_MIN) continue;
     const gone = await prisma.factoryOrder.update({
@@ -246,7 +251,7 @@ export async function refresh(brand: string, now = new Date()) {
 
   // Взятый, но недоведённый заказ. Заново не запускаем: ролик мог успеть
   // собраться и уйти в бот, а вторая сборка — это вторые деньги.
-  const lost = await prisma.factoryOrder.findMany({ where: { brand, state: { in: ["выдан", "собирается"] } } });
+  const lost = await prisma.factoryOrder.findMany({ where: { brand, state: { in: ["выдан", "собирается"] }, kind: { not: ENGINE_KIND } } });
   for (const o of lost) {
     if (!o.takenAt || (now.getTime() - +o.takenAt) / 60000 <= staleOf(brand)) continue;
     await prisma.factoryOrder.update({ where: { id: o.id }, data: { state: "ошибка", doneAt: now, error: "завод пропал во время сборки" } });
@@ -357,14 +362,14 @@ export async function claim(brand: string, now = new Date()) {
 
   if (SINGLE.has(brand)) {
     const busy = await prisma.factoryOrder.findFirst({
-      where: { brand, state: { in: ["выдан", "на согласовании", "собирается"] } },
+      where: { brand, state: { in: ["выдан", "на согласовании", "собирается"] }, kind: { not: ENGINE_KIND } },
     });
     if (busy) return null;
   }
 
   // Берём только то, что не просрочено: Новости девяти утра, собранные к
   // обеду, — это не «догнали», это мусор в ленте.
-  const planned = await prisma.factoryOrder.findMany({ where: { brand, state: "план" } });
+  const planned = await prisma.factoryOrder.findMany({ where: { brand, state: "план", kind: { not: ENGINE_KIND } } });
   const ready = planned
     .filter((o) => {
       const late = (now.getTime() - slotAt(o.date, o.at)) / 60000;
