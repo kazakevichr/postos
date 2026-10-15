@@ -88,6 +88,20 @@ async function checkWallets() {
         href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
       });
     }
+    // Подписка спишется в ближайшие три дня — чтобы на карте были деньги.
+    if (w.billing === "sub" && w.nextPay && (w.subAmount || 0) > 0) {
+      const left = (+new Date(w.nextPay) - Date.now()) / DAY;
+      if (left >= -1 && left <= 3) {
+        const pk = `wallet:pay:${w.service}`;
+        keep.push(pk);
+        await raise({
+          key: pk, kind: "wallet", level: "info", brand: live[0],
+          title: `${w.title}: списание ${dt(w.nextPay)}`,
+          body: `Подписка ${w.subCurrency === "RUB" ? `${w.subAmount} ₽` : `$${w.subAmount}`} в месяц. Оплатили — отметьте «оплатил» в кошельке, следующая дата посчитается сама.`,
+          href: "/wallets", actionText: "К кошелькам", roles: ["OWNER"],
+        });
+      }
+    }
     // Остаток, который знает только кабинет сервиса.
     if (w.needManual) {
       const mk = `wallet:manual:${w.service}`;

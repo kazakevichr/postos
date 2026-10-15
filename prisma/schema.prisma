@@ -261,9 +261,14 @@ model RecurringCost {
   fromMonth String // YYYY-MM
   toMonth   String? // YYYY-MM, пусто — платим до сих пор
   projectId String? // пусто — платим за всё сразу: сервер, домены
+  // Подписка, заведённая в кошельке: строку ведёт кошелёк, здесь она только
+  // видна. Руками её не правят — иначе цифра разошлась бы с кошельком.
+  wallet    String?
   createdAt DateTime @default(now())
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([wallet])
 }
 
 // ── Инста-аналитика (перенос из insta-hq/Netlify) ───────────────────────────
@@ -636,6 +641,13 @@ model Wallet {
   source    String    @default("") // collector — сборщик на сервере; иначе завод
   manualSpent Float? // расход в момент ручного ввода: остаток = вписанное − потрачено с тех пор
   resetAt   DateTime? // когда пакет обновится сам (у ElevenLabs — раз в месяц)
+  // Как платим. sub — подписка: фиксированная сумма раз в месяц, в
+  // «Постоянные расходы» попадает сама. balance — пополняемый баланс: каждое
+  // пополнение становится тратой в журнале денег. Пусто — ещё не указано.
+  billing     String    @default("")
+  subAmount   Float?
+  subCurrency String    @default("USD")
+  paidAt      DateTime? // когда платили последний раз — от неё считается следующее списание
   updatedAt DateTime  @updatedAt
 }
 

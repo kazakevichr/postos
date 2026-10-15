@@ -381,6 +381,7 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
       fromMonth: r.fromMonth,
       toMonth: r.toMonth,
       project: r.project?.name || null,
+      wallet: r.wallet || null,
     })),
   };
 }

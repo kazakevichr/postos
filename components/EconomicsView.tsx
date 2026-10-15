@@ -366,7 +366,7 @@ export default function EconomicsView({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Recurring rows={d.recurring} month={d.month} busy={busy} send={send} canEdit={canEdit} />
+        <Recurring rows={d.recurring} month={d.month} fx={d.fx} busy={busy} send={send} canEdit={canEdit} />
         <Journal rows={d.ledger} month={d.month} busy={busy} send={send} canEdit={canEdit} />
       </div>
     </div>
@@ -491,10 +491,12 @@ function FxInput({ fx, busy, onSave }: { fx: number; busy: boolean; onSave: (fx:
   );
 }
 
-function Recurring({ rows, month, busy, send, canEdit }: any) {
+function Recurring({ rows, month, fx, busy, send, canEdit }: any) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ title: "", amount: "", currency: "RUB" });
-  const sum = rows.reduce((s: number, r: any) => s + (r.currency === "USD" ? 0 : r.amount), 0);
+  // Долларовые подписки — по курсу периода: раньше они в итог не входили
+  // вовсе, и «в месяц» выходило на треть меньше настоящего.
+  const sum = rows.reduce((s: number, r: any) => s + (r.currency === "USD" ? r.amount * (fx || 0) : r.amount), 0);
 
   return (
     <div className="card">
@@ -517,26 +519,30 @@ function Recurring({ rows, month, busy, send, canEdit }: any) {
                 <td className="py-2">
                   {r.title}
                   <span className="text-xs text-gray-400 ml-2">{r.project || "общий"}</span>
+                  {r.wallet && (
+                    <a href="/wallets" className="text-[11px] ml-2 px-1.5 py-0.5 rounded bg-brand-50 text-brand-700"
+                       title="Подписка ведётся в кошельке: сумму и отключение меняйте там">из кошельков</a>
+                  )}
                 </td>
                 <td className="py-2 text-right tabular-nums whitespace-nowrap">
                   {r.currency === "USD" ? `$${r.amount}` : fmt(r.amount)}
                 </td>
                 {canEdit && (
                   <td className="py-2 pl-3 text-right">
-                    <button
+                    {!r.wallet && <button
                       className="text-xs text-gray-400 hover:text-red-600"
                       disabled={busy}
                       onClick={() => send("/api/economics/recurring", "PATCH", { id: r.id, toMonth: month })}
                       title="Больше не платим — закрыть этим месяцем"
                     >
                       закрыть
-                    </button>
+                    </button>}
                   </td>
                 )}
               </tr>
             ))}
             <tr className="border-t border-gray-300 font-semibold">
-              <td className="py-2">В месяц</td>
+              <td className="py-2">В месяц <span className="text-xs font-normal text-gray-400">доллары по курсу {fx}</span></td>
               <td className="py-2 text-right tabular-nums">{fmt(sum)}</td>
               <td />
             </tr>

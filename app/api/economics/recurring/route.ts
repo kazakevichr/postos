@@ -44,6 +44,10 @@ export async function PATCH(req: Request) {
   }
   const b = await req.json();
   if (!b.id) return NextResponse.json({ error: "Нет id" }, { status: 400 });
+  const row = await prisma.recurringCost.findUnique({ where: { id: b.id }, select: { wallet: true } });
+  if (row?.wallet) {
+    return NextResponse.json({ error: "Эта подписка ведётся в кошельке — отключите её там" }, { status: 400 });
+  }
   const toMonth = isMonth(b.toMonth) ? b.toMonth : null;
   const cost = await prisma.recurringCost.update({
     where: { id: b.id },

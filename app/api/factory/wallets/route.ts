@@ -4,6 +4,7 @@ import { accessBrands, currentAccess } from "@/lib/access";
 import { factoryAuth } from "@/lib/factory";
 import { notifyRoles } from "@/lib/telegram";
 import { brandTitle } from "@/lib/brands";
+import { dropTopupLedger, syncSubscription, topupToLedger } from "@/lib/walletMoney";
 import {
   DEFAULT_PROJECT,
   PROJECTS,
@@ -247,7 +248,7 @@ export async function PUT(req: Request) {
     if (!Number.isFinite(amount) || amount === 0) {
       return NextResponse.json({ error: "сумма должна быть числом" }, { status: 400 });
     }
-    await prisma.walletTopup.create({
+    const t = await prisma.walletTopup.create({
       data: {
         service,
         amount,
@@ -258,6 +259,9 @@ export async function PUT(req: Request) {
         ...(b.at ? { at: new Date(b.at) } : {}),
       },
     });
+    // Пополнение — это трата: она же уходит в журнал денег экономики, чтобы
+    // её не вносили там второй раз.
+    await topupToLedger(t);
     // Запись пополнения снимает ручной остаток: он относился к «до», и
     // оставлять его — значит показывать вчерашнюю цифру как сегодняшнюю.
     await prisma.wallet.upsert({
@@ -277,6 +281,37 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
+  // Как платим: подписка (сумма в месяц) или пополняемый баланс. Подписка
+  // сама ведёт свою строку в «Постоянных расходах».
+  if ("billing" in (b || {})) {
+    const billing = ["sub", "balance"].includes(b.billing) ? b.billing : "";
+    const subAmount = b.subAmount == null || b.subAmount === "" ? null : Number(b.subAmount);
+    if (subAmount != null && (!Number.isFinite(subAmount) || subAmount < 0)) {
+      return NextResponse.json({ error: "сумма подписки должна быть числом" }, { status: 400 });
+    }
+    const data = {
+      billing,
+      subAmount: billing === "sub" ? subAmount : null,
+      subCurrency: b.subCurrency === "RUB" ? "RUB" : "USD",
+    };
+    await prisma.wallet.upsert({
+      where: { service },
+      create: { service, project: home, title: SERVICES[service]?.title || service, unit: SERVICES[service]?.unit || "$", ...data },
+      update: data,
+    });
+    await syncSubscription(service);
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
+  }
+
+  // «Оплатил»: от этой даты считается следующее списание подписки. Даты
+  // списаний нигде по API не отдаются, поэтому их узнаём по первой отметке.
+  if ("paid" in (b || {})) {
+    const at = b.paid ? new Date(b.paid) : new Date();
+    if (Number.isNaN(+at)) return NextResponse.json({ error: "непонятная дата" }, { status: 400 });
+    await prisma.wallet.update({ where: { service }, data: { paidAt: at } });
+    return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
+  }
+
   // Пометка «не пользуемся»: строка уходит из рабочего списка и перестаёт
   // поднимать тревогу. Замеры по ней приходят и дальше, история пополнений
   // остаётся — вернуть в строй можно тем же переключателем.
@@ -291,6 +326,8 @@ export async function PUT(req: Request) {
       },
       update: { inactive },
     });
+    // Выключенная подписка больше не платится — закрываем её строку.
+    await syncSubscription(service);
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
@@ -317,7 +354,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
-  return NextResponse.json({ error: "нужны amount, manual или inactive" }, { status: 400 });
+  return NextResponse.json({ error: "нужны amount, manual, billing, paid или inactive" }, { status: 400 });
 }
 
 // Ошиблись в сумме — пополнение удаляется. Правки на месте нет намеренно:
@@ -344,8 +381,10 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "чужое направление" }, { status: 403 });
     }
     const project = askedProject(req, who.projects);
+    for (const t of await prisma.walletTopup.findMany({ where: { service }, select: { id: true } })) await dropTopupLedger(t.id);
     await prisma.walletTopup.deleteMany({ where: { service } });
     await prisma.wallet.delete({ where: { service } });
+    await syncSubscription(service);
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
 
@@ -359,5 +398,6 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "чужое направление" }, { status: 403 });
   }
   await prisma.walletTopup.delete({ where: { id } }).catch(() => {});
+  await dropTopupLedger(id);
   return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
 }

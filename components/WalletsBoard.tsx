@@ -21,6 +21,7 @@ type Row = {
   balance: number | null; source: string; blocks: boolean;
   users: string[]; shared: boolean; perDay: number | null; week: number | null;
   month: number | null; daysLeft: number | null; resetAt: string | null; needManual: string;
+  billing: string; subAmount: number | null; subCurrency: string; nextPay: string | null; paidAt: string | null;
 };
 type Summary = {
   month: string; total: number; mine: number | null;
@@ -83,6 +84,8 @@ export default function WalletsBoard({
   const [amount, setAmount] = useState("");
   const [comment, setComment] = useState("");
   const [manual, setManual] = useState("");
+  const [bill, setBill] = useState({ billing: "", amount: "", currency: "USD" });
+  const [paidOn, setPaidOn] = useState("");
 
   // Ответ на любой запрос — целиком картина одного проекта, поэтому раскладка
   // одна на загрузку, пополнение и удаление.
@@ -349,16 +352,33 @@ export default function WalletsBoard({
                     <span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${b.cls}`}>{b.text}</span>
                   </td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
-                    {r.balance == null ? (
+                    {r.billing === "sub" ? (
+                      <span className="font-semibold">
+                        {r.subAmount == null ? "сумма не указана" : r.subAmount === 0 ? "бесплатно"
+                          : `${r.subCurrency === "RUB" ? `${r.subAmount.toLocaleString("ru-RU")} ₽` : money(r.subAmount)} / мес`}
+                      </span>
+                    ) : r.balance == null ? (
                       <span className="text-gray-400">неизвестен</span>
                     ) : (
                       <span className="font-semibold">{amt(r.balance, r.unit)}</span>
                     )}
-                    <div className="text-xs text-gray-400 mt-0.5">{r.source || "нужен ручной ввод"}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {r.billing === "sub" ? "подписка · в постоянных расходах" : r.source || "нужен ручной ввод"}
+                    </div>
                     {r.topups > 0 && <div className="text-xs text-gray-400">пополнено {money(r.topups)}</div>}
                   </td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
-                    {r.daysLeft != null ? (
+                    {r.billing === "sub" ? (
+                      r.nextPay ? (
+                        <span className={+new Date(r.nextPay) - Date.now() < 3 * 864e5 ? "text-red-600 font-semibold" : "font-medium"}>
+                          списание {new Date(r.nextPay).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400" title="Нажмите «оплатил» при следующей оплате — дата запомнится">
+                          дата списания<br />не известна
+                        </span>
+                      )
+                    ) : r.daysLeft != null ? (
                       <span className={r.daysLeft < 7 ? "text-red-600 font-semibold" : "font-medium"}>
                         ~{r.daysLeft} {dayWord(r.daysLeft)}
                       </span>
@@ -382,7 +402,11 @@ export default function WalletsBoard({
                        className="text-brand-600 hover:underline text-xs mr-3">кабинет ↗</a>
                     {canManage && (
                       <button className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
-                              onClick={() => setOpen(open === r.service ? "" : r.service)}>
+                              onClick={() => {
+                                setOpen(open === r.service ? "" : r.service);
+                                setBill({ billing: r.billing, amount: r.subAmount != null ? String(r.subAmount) : "", currency: r.subCurrency || "USD" });
+                                setPaidOn("");
+                              }}>
                         {open === r.service ? "закрыть" : "внести"}
                       </button>
                     )}
@@ -424,7 +448,59 @@ export default function WalletsBoard({
               {r.left == null && r.spent != null && " Впишите остаток из кабинета один раз — дальше он будет уменьшаться сам по расходу."}
               {r.left == null && r.spent == null && " Остаток виден только в кабинете — вписывайте его раз в неделю, Постос напомнит."}
             </div>
-            <div className="flex flex-wrap gap-2 items-end">
+            <div className="flex flex-wrap gap-2 items-end pb-3 border-b">
+              <label className="text-sm">
+                <div className="text-xs text-gray-500 mb-1">Как платим</div>
+                <select className="border rounded-lg px-2 py-1.5" value={bill.billing}
+                        onChange={(e) => setBill({ ...bill, billing: e.target.value })}>
+                  <option value="">не указано</option>
+                  <option value="sub">подписка — сумма раз в месяц</option>
+                  <option value="balance">пополняемый баланс</option>
+                </select>
+              </label>
+              {bill.billing === "sub" && (
+                <>
+                  <label className="text-sm">
+                    <div className="text-xs text-gray-500 mb-1">Сумма в месяц</div>
+                    <input className="border rounded-lg px-2 py-1.5 w-28" inputMode="decimal" value={bill.amount}
+                           onChange={(e) => setBill({ ...bill, amount: e.target.value })} placeholder="0 — бесплатно" />
+                  </label>
+                  <select className="border rounded-lg px-2 py-1.5 text-sm" value={bill.currency}
+                          onChange={(e) => setBill({ ...bill, currency: e.target.value })}>
+                    <option value="USD">$</option>
+                    <option value="RUB">₽</option>
+                  </select>
+                </>
+              )}
+              <button className="px-3 py-1.5 rounded-lg text-sm border hover:bg-gray-50 disabled:opacity-50"
+                      disabled={busy !== "" || (bill.billing === r.billing && (bill.amount || "") === (r.subAmount != null ? String(r.subAmount) : "") && bill.currency === r.subCurrency)}
+                      onClick={() => send({ service: r.service, billing: bill.billing, subAmount: bill.amount, subCurrency: bill.currency }, "billing")}>
+                Сохранить
+              </button>
+            </div>
+            <div className="text-xs text-gray-500">
+              {bill.billing === "sub"
+                ? "Подписка сама попадёт в «Постоянные расходы» экономики — там её вносить не нужно."
+                : bill.billing === "balance"
+                  ? "Каждое пополнение ниже само станет тратой в «Журнале денег» экономики."
+                  : "Укажите, как платим за сервис, — от этого зависит, где он появится в экономике."}
+            </div>
+            {r.billing === "sub" && (
+              <div className="flex flex-wrap gap-2 items-end">
+                <label className="text-sm">
+                  <div className="text-xs text-gray-500 mb-1">Оплатили — когда (пусто — сегодня)</div>
+                  <input type="date" className="border rounded-lg px-2 py-1.5" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+                </label>
+                <button className="px-3 py-1.5 rounded-lg text-sm bg-brand-600 text-white disabled:opacity-50"
+                        disabled={busy !== ""} onClick={() => send({ service: r.service, paid: paidOn || null }, "paid")}>
+                  Оплатил
+                </button>
+                <div className="text-xs text-gray-400 self-center">
+                  {r.paidAt ? `последняя оплата ${when(r.paidAt)} · ` : ""}следующее списание считается через месяц от оплаты
+                </div>
+              </div>
+            )}
+            {r.billing !== "sub" && <div className="flex flex-wrap gap-2 items-end">
               <label className="text-sm">
                 <div className="text-xs text-gray-500 mb-1">Записать пополнение, $</div>
                 <input className="border rounded-lg px-2 py-1.5 w-32" inputMode="decimal"
@@ -440,8 +516,8 @@ export default function WalletsBoard({
                       onClick={() => send({ service: r.service, amount, note: comment }, "topup")}>
                 Записать
               </button>
-            </div>
-            <div className="flex flex-wrap gap-2 items-end pt-2 border-t">
+            </div>}
+            {r.billing !== "sub" && <div className="flex flex-wrap gap-2 items-end pt-2 border-t">
               <label className="text-sm">
                 <div className="text-xs text-gray-500 mb-1">
                   Или вписать текущий остаток ({r.unit})
@@ -461,7 +537,7 @@ export default function WalletsBoard({
                   Стереть (вписан {when(r.manualAt)})
                 </button>
               )}
-            </div>
+            </div>}
             {note && <div className="text-sm text-red-600">{note}</div>}
           </div>
         );

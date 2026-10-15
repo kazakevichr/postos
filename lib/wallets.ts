@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { nextPayment } from "@/lib/walletMoney";
 
 // Кошельки платных сервисов: справочник, расчёт остатка и состояние.
 //
@@ -43,6 +44,11 @@ export type WalletRow = {
   daysLeft: number | null; // на сколько дней хватит при таком расходе
   resetAt: string | null;  // когда пакет обновится сам
   needManual: string;      // что вписать руками и почему ("" — ничего)
+  billing: string;         // sub — подписка, balance — пополняемый, "" — не указано
+  subAmount: number | null;
+  subCurrency: string;
+  nextPay: string | null;  // следующее списание подписки
+  paidAt: string | null;
 };
 
 // Проекты, у которых есть свои кошельки. Тексты предупреждений разные не для
@@ -275,13 +281,21 @@ export const SERVICES: Record<
     link: "https://elevenlabs.io/app/settings/billing",
     api: "отдаст после перевыпуска ключа с правом user_read",
   },
-  // Поиск TalorData — ОДИН ключ на все заводы и Оракл (отпечатки совпали
-  // 15.10.2026). Раньше строка жила только у Оракла и показывала «работает»,
-  // когда пакет уже истёк.
+  // Поиск TalorData у ЗАВОДОВ: один ключ на СуперФит, MoneyBall,
+  // content-factory и завод Оракла (отпечатки совпали 15.10.2026). У сайта
+  // Оракла — свой аккаунт, это строка oracle_talor.
   talor: {
     project: "superfit",
     users: [...SHARED_POOL, "oracle"],
-    title: "TalorData (веб-поиск)",
+    title: "TalorData — поиск заводов",
+    unit: "кредитов",
+    blocks: false,
+    link: "https://talordata.net",
+    api: "остаток не отдаёт · доступ проверяется пробным запросом",
+  },
+  oracle_talor: {
+    project: "oracle",
+    title: "TalorData — поиск сайта Оракла",
     unit: "кредитов",
     blocks: false,
     link: "https://talordata.net",
@@ -569,9 +583,14 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
       perDay: st.perDay == null ? null : Math.round(st.perDay * 100) / 100,
       week: st.week,
       month: st.month,
-      daysLeft,
+      daysLeft: w?.billing === "sub" ? null : daysLeft,
       resetAt,
       needManual,
+      billing: w?.billing || "",
+      subAmount: w?.subAmount ?? null,
+      subCurrency: w?.subCurrency || "USD",
+      nextPay: (() => { const d = w ? nextPayment(w) : null; return d ? d.toISOString() : null; })(),
+      paidAt: w?.paidAt ? w.paidAt.toISOString() : null,
     });
   }
   return out;
