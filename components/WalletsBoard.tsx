@@ -370,7 +370,9 @@ export default function WalletsBoard({
                     {r.topups > 0 && <div className="text-xs text-gray-400">пополнено {money(r.topups)}</div>}
                   </td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
-                    {r.billing === "sub" ? (
+                    {r.billing === "sub" && r.subAmount === 0 ? (
+                      <span className="text-gray-400">—</span>
+                    ) : r.billing === "sub" ? (
                       r.nextPay ? (
                         <span className={+new Date(r.nextPay) - Date.now() < 3 * 864e5 ? "text-red-600 font-semibold" : "font-medium"}>
                           списание {new Date(r.nextPay).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
