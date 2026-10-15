@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { plural, raise, resolve, resolveOthers } from "@/lib/notices";
-import { PROJECTS, wallets } from "@/lib/wallets";
+import { PROJECTS, brandsOfWallet, labelsOf, wallets } from "@/lib/wallets";
 import { SUSPICIOUS_AFTER } from "@/lib/insta";
 import { brandLabel } from "@/lib/brands";
 import { DELIVERY_ONLY } from "@/lib/factory";
@@ -40,45 +40,79 @@ async function safely(name: string, fn: () => Promise<void>) {
 // выглядят нормально, просто они вчерашние.
 async function checkWallets() {
   const keep: string[] = [];
-  for (const project of Object.keys(PROJECTS)) {
-    if (ACCOUNTING_ONLY.has(project)) continue;
-    const rows = await wallets(project);
-    for (const w of rows) {
-      if (w.inactive) continue;
-      const key = `wallet:dry:${w.service}`;
-      if (!w.ok && w.blocks) {
-        keep.push(key);
-        await raise({
-          key, kind: "wallet", level: "crit", brand: project,
-          title: `${w.title}: платить нечем`,
-          body: `${PROJECTS[project].blockedTitle} ${PROJECTS[project].blockedNote}`,
-          href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
-        });
-      } else if (w.low || (!w.ok && !w.blocks)) {
-        keep.push(key);
-        await raise({
-          key, kind: "wallet", level: "warn", brand: project,
-          title: `${w.title} на исходе${w.balance != null ? `: ${w.balance} ${w.unit}` : ""}`,
-          body: w.blocks
-            ? "Кончится — работа встанет посреди заказа."
-            : PROJECTS[project].dryNote,
-          href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
-        });
-      }
-    }
-
-    // Замеры присылает сам завод. Молчат дольше суток — молчит завод.
-    const freshest = rows.filter((r) => !r.inactive && r.at).map((r) => +new Date(r.at!));
-    if (freshest.length && Date.now() - Math.max(...freshest) > DAY) {
-      const key = `wallet:stale:${project}`;
+  // Кошелёк — аккаунт сервиса, а не проект: каждый проверяется один раз, даже
+  // если на нём сидят три проекта.
+  const rows = await wallets("all");
+  for (const w of rows) {
+    if (w.inactive) continue;
+    const brands = await brandsOfWallet(w.service);
+    const live = brands.filter((b) => !ACCOUNTING_ONLY.has(b));
+    if (!live.length) continue;
+    const lab = labelsOf(live[0]);
+    const whose = w.shared ? ` Общий: ${w.users.join(", ")}.` : "";
+    const key = `wallet:dry:${w.service}`;
+    // Пакет обновится сам раньше, чем кончится, — тревожиться не о чем.
+    const resetsFirst = w.resetAt && w.daysLeft != null && +new Date(w.resetAt) < Date.now() + w.daysLeft * DAY;
+    if (!w.ok && w.blocks) {
       keep.push(key);
       await raise({
-        key, kind: "wallet", level: "warn", brand: project,
-        title: `${PROJECTS[project].title}: замеры балансов не приходят больше суток`,
-        body: "Цифры на странице кошельков выглядят нормально, но они старые: замеры шлёт завод, и раз их нет — молчит он.",
-        href: "/wallets", actionText: "К кошелькам", roles: ["OWNER"],
+        key, kind: "wallet", level: "crit", brand: live[0],
+        title: `${w.title}: платить нечем`,
+        body: `${lab.blockedTitle} ${lab.blockedNote}${whose}`,
+        href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
+      });
+    } else if (!w.ok) {
+      keep.push(key);
+      await raise({
+        key, kind: "wallet", level: "warn", brand: live[0],
+        title: `${w.title}: ${w.note || "не работает"}`,
+        body: `${lab.dryNote}${whose}`,
+        href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
+      });
+    } else if (w.daysLeft != null && w.daysLeft < 7 && !resetsFirst) {
+      // Главная цифра — сколько дней осталось при нынешнем расходе:
+      // предупреждаем за неделю, а не когда всё уже встало.
+      keep.push(key);
+      await raise({
+        key, kind: "wallet", level: w.daysLeft < 2 && w.blocks ? "crit" : "warn", brand: live[0],
+        title: `${w.title}: хватит примерно на ${plural(w.daysLeft, "день", "дня", "дней")}`,
+        body: `Тратится около ${w.perDay} ${w.unit} в день.${whose}`,
+        href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
+      });
+    } else if (w.low && !resetsFirst) {
+      keep.push(key);
+      await raise({
+        key, kind: "wallet", level: "warn", brand: live[0],
+        title: `${w.title} на исходе${w.balance != null ? `: ${w.balance} ${w.unit}` : ""}`,
+        body: (w.blocks ? "Кончится — работа встанет посреди заказа." : lab.dryNote) + whose,
+        href: "/wallets", actionText: "Пополнить", roles: ["OWNER"],
       });
     }
+    // Остаток, который знает только кабинет сервиса.
+    if (w.needManual) {
+      const mk = `wallet:manual:${w.service}`;
+      keep.push(mk);
+      await raise({
+        key: mk, kind: "wallet", level: "info", brand: live[0],
+        title: `${w.title}: впишите остаток`,
+        body: w.needManual[0].toUpperCase() + w.needManual.slice(1) + ".",
+        href: "/wallets", actionText: "Вписать", roles: ["OWNER"],
+      });
+    }
+  }
+
+  // Замеры шлёт сборщик на сервере раз в час. Молчит дольше трёх часов —
+  // цифры на странице выглядят нормально, но они старые.
+  const last = await prisma.wallet.findFirst({ where: { source: "collector" }, orderBy: { at: "desc" }, select: { at: true } });
+  if (!last?.at || Date.now() - +last.at > 3 * 3600e3) {
+    const key = "wallet:stale";
+    keep.push(key);
+    await raise({
+      key, kind: "wallet", level: "warn", brand: "superfit",
+      title: "Замеры кошельков не приходят",
+      body: "Сборщик на сервере (content-factory, ops/wallets.py) молчит больше трёх часов — остатки на странице старые.",
+      href: "/wallets", actionText: "К кошелькам", roles: ["OWNER"],
+    });
   }
   await resolveOthers("wallet:", keep);
 }

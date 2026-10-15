@@ -3,16 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { accessBrands, currentAccess } from "@/lib/access";
 import { factoryAuth } from "@/lib/factory";
 import { notifyRoles } from "@/lib/telegram";
+import { brandTitle } from "@/lib/brands";
 import {
   DEFAULT_PROJECT,
   PROJECTS,
   SERVICES,
+  brandsOfWallet,
   freeServiceId,
-  projectOfAsync,
+  labelsOf,
+  snap,
   stateOf,
+  summary,
   topups,
   wallets,
-  walletProjectsOf,
+  walletProjects,
 } from "@/lib/wallets";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +30,7 @@ export const dynamic = "force-dynamic";
 async function visibleProjects(): Promise<string[] | null> {
   const access = await currentAccess();
   if (!access || !["OWNER", "PARTNER"].includes(access.role)) return null;
-  return walletProjectsOf(await accessBrands(access));
+  return walletProjects(await accessBrands(access));
 }
 /**
  * Кто правит кошельки и какие.
@@ -39,7 +43,7 @@ async function visibleProjects(): Promise<string[] | null> {
 async function editor(): Promise<{ name: string; projects: string[] } | null> {
   const access = await currentAccess();
   if (!access || !["OWNER", "PARTNER"].includes(access.role)) return null;
-  const projects = walletProjectsOf(await accessBrands(access));
+  const projects = await walletProjects(await accessBrands(access));
   return projects.length ? { name: access.name, projects } : null;
 }
 // Замеры шлёт не только СуперФит.
@@ -57,22 +61,32 @@ const money = (n: number) => `$${n.toFixed(2)}`;
 // Проект, который спрашивают, — но не дальше рамок направления. Неизвестное
 // или чужое имя не ошибка, а старая ссылка либо попытка заглянуть за свои
 // границы: отдаём первый доступный, а не пустую страницу и не чужие деньги.
+// «all» — сводка по всем кошелькам: есть только у того, кто видит больше
+// одного проекта.
 function askedProject(req: Request, allowed: string[]) {
   const p = new URL(req.url).searchParams.get("project") || "";
-  if (PROJECTS[p] && allowed.includes(p)) return p;
-  return allowed.includes(DEFAULT_PROJECT) ? DEFAULT_PROJECT : allowed[0];
+  if (p === "all" && allowed.length > 1) return p;
+  if (allowed.includes(p)) return p;
+  return allowed.length > 1 ? "all" : allowed[0];
+}
+
+/** Можно ли этому человеку править кошелёк: сидит ли на нём его проект. */
+async function mayEdit(service: string, projects: string[]) {
+  return (await brandsOfWallet(service)).some((b) => projects.includes(b));
 }
 
 // Тексты предупреждений и список проектов едут вместе с данными: справочник
 // живёт в lib/wallets.ts рядом с prisma, а таблица — клиентский компонент, и
 // импортировать одно в другое нельзя.
 async function picture(project: string, allowed: string[]) {
+  const projects = await Promise.all(allowed.map(async (id) => ({ id, title: PROJECTS[id]?.title || (await brandTitle(id)) })));
   return {
     project,
-    projects: allowed.map((id) => ({ id, title: PROJECTS[id].title })),
-    labels: PROJECTS[project],
+    projects: allowed.length > 1 ? [{ id: "all", title: "Сводка" }, ...projects] : projects,
+    labels: project === "all" ? labelsOf(DEFAULT_PROJECT) : labelsOf(project, projects.find((p) => p.id === project)?.title),
     wallets: await wallets(project),
     topups: await topups(project),
+    summary: await summary(project),
   };
 }
 
@@ -121,29 +135,47 @@ export async function POST(req: Request) {
   const list = Array.isArray(b?.wallets) ? b.wallets : null;
   if (!list) return NextResponse.json({ error: "нужен массив wallets" }, { status: 400 });
 
+  // Сборщик на сервере (content-factory/ops/wallets.py) видит ключи всех
+  // заводов разом и знает, кто на каком аккаунте сидит. Его замер главнее
+  // заводского: пока он свежий, заводы не перетирают строку своими.
+  const collector = req.headers.get("x-wallet-source") === "collector";
   const msgs: string[] = [];
   for (const w of list) {
     const service = String(w?.service || "").trim();
-    if (!service || !SERVICES[service]) continue;
-    const meta = SERVICES[service];
+    if (!service) continue;
+    const prev = await prisma.wallet.findUnique({ where: { service } });
+    if (!SERVICES[service] && !(collector || prev?.custom)) continue;
+    if (!collector && prev?.source === "collector" && prev.at && Date.now() - +prev.at < 3 * 3600e3) continue;
+    const users: string[] = Array.isArray(w.users) ? w.users.map(String) : [];
+    const meta = SERVICES[service] || {
+      project: users[0] || DEFAULT_PROJECT, title: String(w.title || service), unit: String(w.unit || "$"),
+      blocks: Boolean(w.blocks), link: String(w.link || ""), api: "",
+    };
     const fields = {
-      title: String(w.title || meta.title).slice(0, 120),
+      // Название знакомого сервиса — из справочника: там оно уточнено
+      // («ElevenLabs — озвучка роликов (завод)»), а источники шлют общее.
+      title: String(SERVICES[service] ? meta.title : w.title || meta.title).slice(0, 120),
       ok: w.ok !== false,
       low: Boolean(w.low),
       left: w.left == null ? null : Number(w.left),
-      unit: meta.unit,
+      unit: collector && w.unit ? String(w.unit) : meta.unit,
       spent: w.spent == null ? null : Number(w.spent),
       note: String(w.note || "").slice(0, 400),
       link: String(w.link || meta.link).slice(0, 300),
       at: new Date(),
+      ...(collector ? {
+        source: "collector",
+        ...(users.length ? { users: users.join(",") } : {}),
+        resetAt: w.reset_at ? new Date(Number(w.reset_at) * 1000) : null,
+      } : {}),
     };
     const next = stateOf(fields);
-    const prev = await prisma.wallet.findUnique({ where: { service } });
     await prisma.wallet.upsert({
       where: { service },
-      create: { service, ...fields, state: next },
+      create: { service, project: meta.project, blocks: meta.blocks, ...fields, state: next },
       update: { ...fields, state: next },
     });
+    await snap(service, fields.left, fields.spent);
     if (prev?.state === next) continue;      // ничего не изменилось — молчим
     // Сервис, помеченный «не пользуемся», молчит и при пустом балансе. Замеры
     // по нему приходить не перестают (завод не знает о пометке), но будить
@@ -152,8 +184,9 @@ export async function POST(req: Request) {
     if (prev?.inactive) continue;
 
     const name = fields.title;
-    const proj = PROJECTS[meta.project] || PROJECTS[DEFAULT_PROJECT];
-    const where = `[${proj.title}] `;
+    const brands = await brandsOfWallet(service);
+    const proj = labelsOf(brands[0] || meta.project);
+    const where = `[${(await Promise.all(brands.map((x) => PROJECTS[x]?.title || brandTitle(x)))).join(", ")}] `;
     if (next === "down") {
       msgs.push(
         where +
@@ -164,7 +197,7 @@ export async function POST(req: Request) {
       );
     } else if (next === "low" && prev?.state !== "down") {
       msgs.push(
-        `${where}⚠️ <b>${name}</b>: остаток ${fields.left ?? "?"} ${meta.unit}, скоро кончится.` +
+        `${where}⚠️ <b>${name}</b>: остаток ${fields.left ?? "?"} ${fields.unit}, скоро кончится.` +
           `\nПополнить: ${fields.link}`,
       );
     } else if (next === "ok" && prev && prev.state !== "ok") {
@@ -180,7 +213,7 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   // Источникам замеров рамки направления не нужны: они спрашивают про свой
   // проект по имени и ходят по ключу, а не сессией.
-  const allowed = byKey(req) ? Object.keys(PROJECTS) : await visibleProjects();
+  const allowed = byKey(req) ? await walletProjects(null) : await visibleProjects();
   if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!allowed.length) {
     return NextResponse.json({ project: "", projects: [], labels: null, wallets: [], topups: [] });
@@ -203,10 +236,11 @@ export async function PUT(req: Request) {
   if (!known) {
     return NextResponse.json({ error: "неизвестный сервис" }, { status: 400 });
   }
-  const project = await projectOfAsync(service);
-  if (!who.projects.includes(project)) {
+  if (!(await mayEdit(service, who.projects))) {
     return NextResponse.json({ error: "чужое направление" }, { status: 403 });
   }
+  const project = askedProject(req, who.projects);
+  const home = (await brandsOfWallet(service))[0] || DEFAULT_PROJECT;
 
   if (b?.amount != null) {
     const amount = Number(b.amount);
@@ -229,7 +263,7 @@ export async function PUT(req: Request) {
     await prisma.wallet.upsert({
       where: { service },
       create: {
-        service, project,
+        service, project: home,
         title: SERVICES[service]?.title || service,
         unit: SERVICES[service]?.unit || "$",
       },
@@ -238,7 +272,7 @@ export async function PUT(req: Request) {
     const title = SERVICES[service]?.title || service;
     void notifyRoles(
       ["OWNER"],
-      `💳 [${PROJECTS[project].title}] <b>${title}</b>: пополнение ${money(amount)}`,
+      `💳 <b>${title}</b>: пополнение ${money(amount)}`,
     );
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
@@ -251,7 +285,7 @@ export async function PUT(req: Request) {
     await prisma.wallet.upsert({
       where: { service },
       create: {
-        service, project, inactive,
+        service, project: home, inactive,
         title: SERVICES[service]?.title || service,
         unit: SERVICES[service]?.unit || "$",
       },
@@ -268,12 +302,17 @@ export async function PUT(req: Request) {
     await prisma.wallet.upsert({
       where: { service },
       create: {
-        service, project,
+        service, project: home,
         title: SERVICES[service]?.title || service,
         unit: SERVICES[service]?.unit || "$",
         manual, manualAt: manual == null ? null : new Date(),
       },
-      update: { manual, manualAt: manual == null ? null : new Date() },
+      // Расход на момент ввода: дальше остаток = вписанное − потрачено с тех
+      // пор. Так роутер, который отдаёт только расход, вписывается один раз.
+      update: {
+        manual, manualAt: manual == null ? null : new Date(),
+        manualSpent: manual == null ? null : (await prisma.wallet.findUnique({ where: { service } }))?.spent ?? null,
+      },
     });
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }
@@ -301,10 +340,10 @@ export async function DELETE(req: Request) {
         { status: 400 }
       );
     }
-    const project = row.project || DEFAULT_PROJECT;
-    if (!who.projects.includes(project)) {
+    if (!who.projects.includes(row.project || DEFAULT_PROJECT)) {
       return NextResponse.json({ error: "чужое направление" }, { status: 403 });
     }
+    const project = askedProject(req, who.projects);
     await prisma.walletTopup.deleteMany({ where: { service } });
     await prisma.wallet.delete({ where: { service } });
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
@@ -315,8 +354,8 @@ export async function DELETE(req: Request) {
   // Проект узнаём ДО удаления: после него сервис уже не спросить, а вернуть
   // нужно картину того же раздела, из которого нажали «удалить».
   const row = await prisma.walletTopup.findUnique({ where: { id } });
-  const project = row ? await projectOfAsync(row.service) : askedProject(req, who.projects);
-  if (row && !who.projects.includes(project)) {
+  const project = askedProject(req, who.projects);
+  if (row && !(await mayEdit(row.service, who.projects))) {
     return NextResponse.json({ error: "чужое направление" }, { status: 403 });
   }
   await prisma.walletTopup.delete({ where: { id } }).catch(() => {});

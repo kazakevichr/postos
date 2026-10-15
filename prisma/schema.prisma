@@ -628,7 +628,28 @@ model Wallet {
   manualAt  DateTime?
   state     String    @default("") // ok | low | down — чтобы пушить на СМЕНУ
   at        DateTime? // когда завод присылал замер
+  // Кто сидит на этом аккаунте сервиса: superfit,moneyball,engine,oracle.
+  // Кошелёк — это аккаунт (ключ), а не проект: одним ключом HeyGen платят три
+  // завода, и строка видна в каждом из их проектов. engine — новый завод,
+  // разворачивается в проекты, где добавлен «Ведущий».
+  users     String    @default("")
+  source    String    @default("") // collector — сборщик на сервере; иначе завод
+  manualSpent Float? // расход в момент ручного ввода: остаток = вписанное − потрачено с тех пор
+  resetAt   DateTime? // когда пакет обновится сам (у ElevenLabs — раз в месяц)
   updatedAt DateTime  @updatedAt
+}
+
+// Снимок кошелька на конец дня (по Москве): из разницы соседних снимков
+// считается расход за день, из него — «хватит на N дней» и траты за месяц.
+model WalletSnap {
+  id      Int      @id @default(autoincrement())
+  service String
+  day     String // YYYY-MM-DD по Москве
+  left    Float?
+  spent   Float?
+  at      DateTime @default(now())
+
+  @@unique([service, day])
 }
 
 // Пополнение: когда, сколько и кто. Отсюда считается остаток тех сервисов,

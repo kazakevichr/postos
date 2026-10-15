@@ -8,9 +8,9 @@
 // BetsAPI, TalorData), иначе знать его неоткуда. Поэтому ручной ввод здесь не
 // «дополнительная возможность», а единственный источник половины цифр.
 //
-// Проектов два — завод СуперФита и Оракл, — и переключатель наверху меняет
-// выборку целиком: сервисы, история пополнений и тексты предупреждений
-// приходят с сервера уже для выбранного проекта.
+// Кошелёк — это аккаунт сервиса, а не проект: одним ключом могут платить
+// несколько проектов, и тогда строка видна у каждого с пометкой «общий».
+// «Сводка» — все кошельки разом и траты месяца по проектам.
 import { useEffect, useState } from "react";
 
 type Row = {
@@ -19,6 +19,13 @@ type Row = {
   link: string; manual: number | null; manualAt: string | null;
   at: string | null; fresh: boolean; topups: number; custom: boolean; inactive: boolean;
   balance: number | null; source: string; blocks: boolean;
+  users: string[]; shared: boolean; perDay: number | null; week: number | null;
+  month: number | null; daysLeft: number | null; resetAt: string | null; needManual: string;
+};
+type Summary = {
+  month: string; total: number; mine: number | null;
+  byProject: { brand: string; title: string; amount: number }[];
+  ending: { title: string; daysLeft: number; balance: number | null; unit: string }[];
 };
 type Topup = {
   id: number; service: string; title: string; amount: number;
@@ -30,6 +37,12 @@ type Labels = {
 };
 
 const money = (n: number) => `$${n.toFixed(2)}`;
+const amt = (n: number, unit: string) => (unit === "$" ? money(n) : `${Math.round(n).toLocaleString("ru-RU")} ${unit}`);
+const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+const dayWord = (n: number) => {
+  const m10 = n % 10, m100 = n % 100;
+  return m100 >= 11 && m100 <= 14 ? "дней" : m10 === 1 ? "день" : m10 >= 2 && m10 <= 4 ? "дня" : "дней";
+};
 const when = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 
@@ -52,7 +65,8 @@ export default function WalletsBoard({
   // и, хуже того, показывал бы чужие сервисы.
   lockTo?: string;
 }) {
-  const [project, setProject] = useState(lockTo || "superfit");
+  const [project, setProject] = useState(lockTo || "");
+  const [sum, setSum] = useState<Summary | null>(null);
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newLink, setNewLink] = useState("");
@@ -78,6 +92,7 @@ export default function WalletsBoard({
     setHistory(j.topups || []);
     if (j.projects) setProjects(j.projects);
     if (j.labels) setLabels(j.labels);
+    setSum(j.summary || null);
     if (j.project && !lockTo) setProject(j.project);
     return true;
   }
@@ -94,9 +109,11 @@ export default function WalletsBoard({
   async function addWallet() {
     if (!canManage || !newTitle.trim()) return;
     setBusy("add"); setNote("");
-    const r = await fetch("/api/factory/wallets", {
+    // В сводке своего проекта нет — новый кошелёк ложится в первый.
+    const home = project === "all" ? projects.find((p) => p.id !== "all")?.id : project;
+    const r = await fetch(`/api/factory/wallets?project=${encodeURIComponent(project)}`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: newTitle, link: newLink, unit: newUnit || "$", project }),
+      body: JSON.stringify({ title: newTitle, link: newLink, unit: newUnit || "$", project: home }),
     });
     const j = await r.json();
     if (apply(j)) { setNewTitle(""); setNewLink(""); setNewUnit("$"); setAdding(false); }
@@ -109,7 +126,7 @@ export default function WalletsBoard({
   async function setInactive(service: string, inactive: boolean) {
     if (!canManage) return;
     setBusy(`act${service}`); setNote("");
-    const r = await fetch("/api/factory/wallets", {
+    const r = await fetch(`/api/factory/wallets?project=${encodeURIComponent(project)}`, {
       method: "PUT", headers: { "content-type": "application/json" },
       body: JSON.stringify({ service, inactive }),
     });
@@ -122,7 +139,7 @@ export default function WalletsBoard({
     if (!canManage) return;
     if (!window.confirm(`Удалить кошелёк «${title}» вместе с его пополнениями?`)) return;
     setBusy(`delw${service}`); setNote("");
-    const r = await fetch(`/api/factory/wallets?service=${encodeURIComponent(service)}`, { method: "DELETE" });
+    const r = await fetch(`/api/factory/wallets?service=${encodeURIComponent(service)}&project=${encodeURIComponent(project)}`, { method: "DELETE" });
     const j = await r.json();
     if (!apply(j)) setNote(j.error || "не получилось");
     setBusy("");
@@ -131,7 +148,7 @@ export default function WalletsBoard({
   async function send(body: any, tag: string) {
     if (!canManage) return;
     setBusy(tag); setNote("");
-    const r = await fetch("/api/factory/wallets", {
+    const r = await fetch(`/api/factory/wallets?project=${encodeURIComponent(project)}`, {
       method: "PUT", headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -176,6 +193,46 @@ export default function WalletsBoard({
               {p.title}
             </button>
           ))}
+        </div>
+      )}
+
+      {sum && (
+        <div className="card">
+          <div className="flex flex-wrap gap-x-10 gap-y-4">
+            <div>
+              <div className="text-xs text-gray-500">
+                {project === "all" ? "Потрачено" : "Доля проекта"} · {MONTHS[Number(sum.month.slice(5, 7)) - 1]}
+              </div>
+              <div className="text-2xl font-semibold">{money(project === "all" ? sum.total : sum.mine || 0)}</div>
+              {project !== "all" && <div className="text-xs text-gray-400">всего по всем проектам {money(sum.total)}</div>}
+            </div>
+            {project === "all" && sum.byProject.length > 0 && (
+              <div className="min-w-[14rem]">
+                <div className="text-xs text-gray-500 mb-1">По проектам</div>
+                {sum.byProject.map((p) => (
+                  <div key={p.brand || "-"} className="flex justify-between gap-6 text-sm">
+                    <span className={p.brand ? "" : "text-gray-400"}>{p.title}</span>
+                    <span className="tabular-nums">{money(p.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="min-w-[14rem]">
+              <div className="text-xs text-gray-500 mb-1">Кончится первым</div>
+              {sum.ending.length ? sum.ending.map((e) => (
+                <div key={e.title} className="flex justify-between gap-6 text-sm">
+                  <span>{e.title}</span>
+                  <span className={`tabular-nums ${e.daysLeft < 7 ? "text-red-600 font-medium" : ""}`}>
+                    ~{e.daysLeft} {dayWord(e.daysLeft)}
+                  </span>
+                </div>
+              )) : <div className="text-sm text-gray-400">пока мало замеров, чтобы посчитать</div>}
+            </div>
+          </div>
+          <div className="text-[11px] text-gray-400 mt-3">
+            Считаются кошельки в долларах по ежедневным замерам. Общий расход делится между проектами по числу
+            готовых роликов, которым нужен этот сервис; день без роликов — «не разнесено».
+          </div>
         </div>
       )}
 
@@ -258,7 +315,8 @@ export default function WalletsBoard({
               <th className="py-2 pr-3 font-medium">Сервис</th>
               <th className="py-2 pr-3 font-medium">Статус</th>
               <th className="py-2 pr-3 font-medium">Остаток</th>
-              <th className="py-2 pr-3 font-medium">Пополнено всего</th>
+              <th className="py-2 pr-3 font-medium">Хватит на</th>
+              <th className="py-2 pr-3 font-medium">Расход</th>
               <th className="py-2 pr-3 font-medium">Замер</th>
               <th className="py-2 font-medium"></th>
             </tr>
@@ -275,7 +333,13 @@ export default function WalletsBoard({
                         <span className="ml-2 text-xs font-normal text-gray-400">не активен</span>
                       )}
                     </div>
+                    {r.shared && (
+                      <div className="text-[11px] text-brand-700 mt-0.5 max-w-xs">общий: {r.users.join(", ")}</div>
+                    )}
                     {r.note && <div className="text-xs text-gray-500 mt-0.5 max-w-xs">{r.note}</div>}
+                    {r.needManual && (
+                      <div className="text-xs text-amber-800 bg-amber-50 rounded px-1.5 py-0.5 mt-1 max-w-xs">{r.needManual}</div>
+                    )}
                   </td>
                   <td className="py-2.5 pr-3">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${b.cls}`}>{b.text}</span>
@@ -284,17 +348,29 @@ export default function WalletsBoard({
                     {r.balance == null ? (
                       <span className="text-gray-400">неизвестен</span>
                     ) : (
-                      <span className="font-semibold">
-                        {r.unit === "$" ? money(r.balance) : `${r.balance.toLocaleString("ru-RU")} ${r.unit}`}
-                      </span>
+                      <span className="font-semibold">{amt(r.balance, r.unit)}</span>
                     )}
                     <div className="text-xs text-gray-400 mt-0.5">{r.source || "нужен ручной ввод"}</div>
-                    {r.spent != null && (
-                      <div className="text-xs text-gray-400">потрачено {money(r.spent)}</div>
-                    )}
+                    {r.topups > 0 && <div className="text-xs text-gray-400">пополнено {money(r.topups)}</div>}
                   </td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
-                    {r.topups > 0 ? money(r.topups) : <span className="text-gray-400">—</span>}
+                    {r.daysLeft != null ? (
+                      <span className={r.daysLeft < 7 ? "text-red-600 font-semibold" : "font-medium"}>
+                        ~{r.daysLeft} {dayWord(r.daysLeft)}
+                      </span>
+                    ) : <span className="text-gray-400">—</span>}
+                    {r.resetAt && (
+                      <div className="text-xs text-gray-400">обновится {new Date(r.resetAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</div>
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-3 whitespace-nowrap text-xs">
+                    {r.perDay != null ? (
+                      <>
+                        <div className="text-sm">{amt(r.perDay, r.unit)}<span className="text-gray-400"> /день</span></div>
+                        {r.week != null && <div className="text-gray-400">7 дней: {amt(r.week, r.unit)}</div>}
+                        {r.month != null && <div className="text-gray-400">месяц: {amt(r.month, r.unit)}</div>}
+                      </>
+                    ) : <span className="text-gray-400">{r.spent != null || r.left != null ? "копится" : "не виден"}</span>}
                   </td>
                   <td className="py-2.5 pr-3 text-xs text-gray-500 whitespace-nowrap">{when(r.at)}</td>
                   <td className="py-2.5 whitespace-nowrap">
@@ -341,7 +417,8 @@ export default function WalletsBoard({
             <div className="font-medium">{r.title}</div>
             <div className="text-xs text-gray-500">
               Что этот сервис отдаёт сам: {r.left != null ? "остаток" : r.spent != null ? "только расход" : "ничего"}.
-              {r.left == null && " Остаток считается как пополнения минус расход — или вписывается руками."}
+              {r.left == null && r.spent != null && " Впишите остаток из кабинета один раз — дальше он будет уменьшаться сам по расходу."}
+              {r.left == null && r.spent == null && " Остаток виден только в кабинете — вписывайте его раз в неделю, Постос напомнит."}
             </div>
             <div className="flex flex-wrap gap-2 items-end">
               <label className="text-sm">

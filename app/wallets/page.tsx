@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { accessBrands, currentAccess } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
-import { walletProjectsOf } from "@/lib/wallets";
+import { walletProjects } from "@/lib/wallets";
 import WalletsBoard from "@/components/WalletsBoard";
 
 // Кошельки платных сервисов: остатки, пополнения, что останавливает завод.
@@ -17,7 +17,7 @@ export default async function WalletsPage() {
   // Кошельки направления определяет тот же бренд, что делит соцсети и завод.
   // Раньше привязка шла через источник дохода, и незаполненное поле оставляло
   // раздел пустым, хотя кошельки у направления есть.
-  const mine = walletProjectsOf(await accessBrands(access));
+  const mine = await walletProjects(await accessBrands(access));
 
   if (!mine.length) {
     const project = access.projectId
@@ -30,8 +30,8 @@ export default async function WalletsPage() {
       <div className="space-y-4">
         <h1 className="text-xl font-bold">Кошельки</h1>
         <p className="card text-sm text-gray-500">
-          У направления «{project?.name || "—"}» нет своих платных сервисов. Кошельки заведены у
-          Оракла и СуперФита — переключи направление наверху, чтобы их увидеть.
+          Направление «{project?.name || "—"}» не пользуется платными сервисами: ни один
+          кошелёк на нём не числится.
         </p>
       </div>
     );
