@@ -531,7 +531,8 @@ export async function wallets(project = DEFAULT_PROJECT): Promise<WalletRow[]> {
     // неделю нужна свежая цифра из кабинета. Отдаёт расход, но не остаток
     // (роутер) — цифру нужно вписать один раз, дальше она ведётся сама.
     let needManual = "";
-    if (!w?.inactive && w?.left == null) {
+    // Сломанному сервису цифра из кабинета не поможет — о нём своя тревога.
+    if (!w?.inactive && w?.ok !== false && w?.left == null) {
       const old = !w?.manualAt || now - w.manualAt.getTime() > 7 * 864e5;
       if (w?.spent != null && w?.manual == null && paid === 0) {
         needManual = "впишите остаток из кабинета один раз — дальше он будет уменьшаться сам по расходу";
