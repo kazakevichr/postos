@@ -288,7 +288,7 @@ export const SERVICES: Record<
     project: "superfit",
     users: [...SHARED_POOL, "oracle"],
     title: "TalorData — поиск заводов",
-    unit: "кредитов",
+    unit: "ответов",
     blocks: false,
     link: "https://dashboard.talordata.com",
     api: "остаток не отдаёт · доступ проверяется пробным запросом",
@@ -296,7 +296,7 @@ export const SERVICES: Record<
   oracle_talor: {
     project: "oracle",
     title: "TalorData — поиск сайта Оракла",
-    unit: "кредитов",
+    unit: "ответов",
     blocks: false,
     link: "https://dashboard.talordata.com",
     api: "остаток не отдаёт · доступ проверяется пробным запросом",
