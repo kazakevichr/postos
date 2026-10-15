@@ -675,6 +675,8 @@ export async function topups(project = DEFAULT_PROJECT, limit = 50) {
     service: r.service,
     title: SERVICES[r.service]?.title || titles.get(r.service) || r.service,
     amount: r.amount,
+    paid: r.paid,
+    paidCurrency: r.paidCurrency,
     at: r.at.toISOString(),
     who: r.who,
     note: r.note,

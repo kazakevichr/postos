@@ -248,10 +248,16 @@ export async function PUT(req: Request) {
     if (!Number.isFinite(amount) || amount === 0) {
       return NextResponse.json({ error: "сумма должна быть числом" }, { status: 400 });
     }
+    const paid = b.paid == null || b.paid === "" ? null : Number(b.paid);
+    if (paid != null && (!Number.isFinite(paid) || paid <= 0)) {
+      return NextResponse.json({ error: "сумма оплаты должна быть числом" }, { status: 400 });
+    }
     const t = await prisma.walletTopup.create({
       data: {
         service,
         amount,
+        paid,
+        paidCurrency: b.paidCurrency === "RUB" ? "RUB" : "USD",
         who: who.name,
         note: String(b.note || "").slice(0, 200),
         // Дату можно задать задним числом: пополнение вносится не в ту же
@@ -276,7 +282,8 @@ export async function PUT(req: Request) {
     const title = SERVICES[service]?.title || service;
     void notifyRoles(
       ["OWNER"],
-      `💳 <b>${title}</b>: пополнение ${money(amount)}`,
+      `💳 <b>${title}</b>: пополнение ${money(amount)}` +
+        (paid != null ? ` (заплачено ${t.paidCurrency === "RUB" ? `${paid.toLocaleString("ru-RU")} ₽` : money(paid)})` : ""),
     );
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }

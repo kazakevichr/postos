@@ -29,7 +29,7 @@ type Summary = {
   ending: { title: string; daysLeft: number; balance: number | null; unit: string }[];
 };
 type Topup = {
-  id: number; service: string; title: string; amount: number;
+  id: number; service: string; title: string; amount: number; paid: number | null; paidCurrency: string;
   at: string; who: string; note: string;
 };
 type Labels = {
@@ -82,6 +82,8 @@ export default function WalletsBoard({
   const [note, setNote] = useState("");
   const [open, setOpen] = useState("");            // у какого сервиса раскрыт ввод
   const [amount, setAmount] = useState("");
+  const [paid, setPaid] = useState("");
+  const [paidCur, setPaidCur] = useState("RUB");
   const [comment, setComment] = useState("");
   const [manual, setManual] = useState("");
   const [bill, setBill] = useState({ billing: "", amount: "", currency: "USD" });
@@ -156,7 +158,7 @@ export default function WalletsBoard({
       body: JSON.stringify(body),
     });
     const j = await r.json();
-    if (apply(j)) { setOpen(""); setAmount(""); setComment(""); setManual(""); }
+    if (apply(j)) { setOpen(""); setAmount(""); setPaid(""); setComment(""); setManual(""); }
     else setNote(j.error || "не получилось");
     setBusy("");
   }
@@ -501,10 +503,24 @@ export default function WalletsBoard({
               </div>
             )}
             {r.billing !== "sub" && <div className="flex flex-wrap gap-2 items-end">
+              {/* Две суммы, потому что они расходятся: роутер берём через
+                  Playerok за рубли, и 3 000 ₽ дают $2 000 на балансе. */}
               <label className="text-sm">
-                <div className="text-xs text-gray-500 mb-1">Записать пополнение, $</div>
-                <input className="border rounded-lg px-2 py-1.5 w-32" inputMode="decimal"
-                       value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50" />
+                <div className="text-xs text-gray-500 mb-1">Заплатили</div>
+                <div className="flex gap-1">
+                  <input className="border rounded-lg px-2 py-1.5 w-28" inputMode="decimal"
+                         value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="3000" />
+                  <select className="border rounded-lg px-1.5 py-1.5" value={paidCur} onChange={(e) => setPaidCur(e.target.value)}>
+                    <option value="RUB">₽</option>
+                    <option value="USD">$</option>
+                  </select>
+                </div>
+              </label>
+              <label className="text-sm">
+                <div className="text-xs text-gray-500 mb-1">Пришло на баланс, $</div>
+                <input className="border rounded-lg px-2 py-1.5 w-28" inputMode="decimal"
+                       value={amount} onChange={(e) => setAmount(e.target.value)}
+                       placeholder={paidCur === "USD" && paid ? paid : "2000"} />
               </label>
               <label className="text-sm flex-1 min-w-[12rem]">
                 <div className="text-xs text-gray-500 mb-1">Заметка (необязательно)</div>
@@ -512,8 +528,8 @@ export default function WalletsBoard({
                        value={comment} onChange={(e) => setComment(e.target.value)} placeholder="перевёл с карты" />
               </label>
               <button className="px-3 py-1.5 rounded-lg text-sm bg-brand-600 text-white disabled:opacity-50"
-                      disabled={busy !== "" || !amount}
-                      onClick={() => send({ service: r.service, amount, note: comment }, "topup")}>
+                      disabled={busy !== "" || !(amount || (paidCur === "USD" && paid))}
+                      onClick={() => send({ service: r.service, amount: amount || paid, paid: paid || null, paidCurrency: paidCur, note: comment }, "topup")}>
                 Записать
               </button>
             </div>}
@@ -557,7 +573,14 @@ export default function WalletsBoard({
                 <tr key={t.id} className="border-b last:border-0">
                   <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{when(t.at)}</td>
                   <td className="py-2 pr-3">{t.title}</td>
-                  <td className="py-2 pr-3 font-semibold whitespace-nowrap">{money(t.amount)}</td>
+                  <td className="py-2 pr-3 font-semibold whitespace-nowrap">
+                    {money(t.amount)}
+                    {t.paid != null && (t.paidCurrency !== "USD" || t.paid !== t.amount) && (
+                      <span className="block text-xs font-normal text-gray-500">
+                        заплачено {t.paidCurrency === "RUB" ? `${t.paid.toLocaleString("ru-RU")} ₽` : money(t.paid)}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2 pr-3 text-gray-500">{t.note}</td>
                   <td className="py-2 pr-3 text-gray-400 text-xs">{t.who}</td>
                   <td className="py-2 text-right">

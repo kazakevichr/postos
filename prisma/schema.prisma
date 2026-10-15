@@ -670,7 +670,12 @@ model WalletSnap {
 model WalletTopup {
   id      Int      @id @default(autoincrement())
   service String
-  amount  Float // в долларах
+  amount  Float // сколько пришло на баланс сервиса, в его долларах
+  // Сколько заплатили на самом деле. Роутер покупается через Playerok за
+  // рубли и дешевле номинала: 3 000 ₽ → $2 000 на балансе. В журнал денег
+  // идёт именно эта сумма, а в остаток кошелька — amount.
+  paid         Float?
+  paidCurrency String  @default("USD")
   at      DateTime @default(now())
   who     String   @default("")
   note    String   @default("")
