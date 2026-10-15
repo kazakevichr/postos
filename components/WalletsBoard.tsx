@@ -515,6 +515,8 @@ export default function WalletsBoard({
                   <select className="border rounded-lg px-1.5 py-1.5" value={paidCur} onChange={(e) => setPaidCur(e.target.value)}>
                     <option value="RUB">₽</option>
                     <option value="USD">$</option>
+                    <option value="THB">฿</option>
+                    <option value="EUR">€</option>
                   </select>
                 </div>
               </label>
@@ -579,7 +581,7 @@ export default function WalletsBoard({
                     {money(t.amount)}
                     {t.paid != null && (t.paidCurrency !== "USD" || t.paid !== t.amount) && (
                       <span className="block text-xs font-normal text-gray-500">
-                        заплачено {t.paidCurrency === "RUB" ? `${t.paid.toLocaleString("ru-RU")} ₽` : money(t.paid)}
+                        заплачено {t.paidCurrency === "USD" ? money(t.paid) : `${t.paid.toLocaleString("ru-RU")} ${({ RUB: "₽", THB: "฿", EUR: "€" } as any)[t.paidCurrency] || t.paidCurrency}`}
                       </span>
                     )}
                   </td>

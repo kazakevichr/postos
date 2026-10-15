@@ -182,7 +182,7 @@ async function dueSlots(brand: string, now: Date): Promise<Slot[]> {
 }
 
 /** Событие в журнал производства: он остался общим для всех заводов. */
-async function toJournal(o: { brand: string; kind: string; date: string; at: string; topic: string; script: string; seconds: number; cost: number }, event: string, error = "") {
+async function toJournal(o: { brand: string; kind: string; date: string; at: string; topic: string; script: string; seconds: number; cost: number; costDetail?: string }, event: string, error = "") {
   const jobId = jobIdOf(o);
   const row = await prisma.factoryJob.findUnique({ where: { jobId } });
   await prisma.factoryJob.upsert({
@@ -190,11 +190,12 @@ async function toJournal(o: { brand: string; kind: string; date: string; at: str
     create: {
       jobId, brand: o.brand, date: o.date, slot: o.kind, kind: o.kind,
       topic: o.topic, script: o.script.slice(0, 3000), event, error,
-      seconds: o.seconds, cost: o.cost, links: "[]",
+      seconds: o.seconds, cost: o.cost, costDetail: o.costDetail || "", links: "[]",
     },
     update: {
       brand: o.brand, topic: o.topic || row?.topic || "", script: (o.script || row?.script || "").slice(0, 3000),
       event, error, seconds: o.seconds || row?.seconds || 0, cost: o.cost || row?.cost || 0,
+      costDetail: o.costDetail || row?.costDetail || "",
     },
   });
 

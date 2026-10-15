@@ -257,7 +257,7 @@ export async function PUT(req: Request) {
         service,
         amount,
         paid,
-        paidCurrency: b.paidCurrency === "RUB" ? "RUB" : "USD",
+        paidCurrency: ["RUB", "THB", "EUR"].includes(b.paidCurrency) ? b.paidCurrency : "USD",
         who: who.name,
         note: String(b.note || "").slice(0, 200),
         // Дату можно задать задним числом: пополнение вносится не в ту же
@@ -283,7 +283,7 @@ export async function PUT(req: Request) {
     void notifyRoles(
       ["OWNER"],
       `💳 <b>${title}</b>: пополнение ${money(amount)}` +
-        (paid != null ? ` (заплачено ${t.paidCurrency === "RUB" ? `${paid.toLocaleString("ru-RU")} ₽` : money(paid)})` : ""),
+        (paid != null ? ` (заплачено ${t.paidCurrency === "USD" ? money(paid) : `${paid.toLocaleString("ru-RU")} ${({ RUB: "₽", THB: "฿", EUR: "€" } as any)[t.paidCurrency]}`})` : ""),
     );
     return NextResponse.json({ ok: true, ...(await picture(project, who.projects)) });
   }

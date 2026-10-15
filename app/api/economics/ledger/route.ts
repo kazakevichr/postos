@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       category: CATEGORIES.includes(b.category) ? b.category : "прочее",
       title: String(b.title).trim(),
       amount,
-      currency: b.currency === "USD" ? "USD" : "RUB",
+      currency: ["USD", "THB", "EUR"].includes(b.currency) ? b.currency : "RUB",
       note: String(b.note || "").trim(),
       // Направление берём из контекста: запись всегда ложится туда, где
       // человек сейчас находится.

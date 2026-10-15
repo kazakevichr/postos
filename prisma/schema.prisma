@@ -389,6 +389,9 @@ model FactoryJob {
   error     String   @default("")
   onDemand  Boolean  @default(false)
   cost      Float    @default(0) // смета заказа в долларах (событие «готов»)
+  // Из чего сложилась цена: {heygen, router, voice, total} в долларах;
+  // restored — восстановлено по истории сервисов (до замеров 15.10.2026).
+  costDetail String   @default("")
   seconds   Int      @default(0) // длительность производства (событие «готов»)
   at        DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -670,6 +673,17 @@ model WalletSnap {
 // Пополнение: когда, сколько и кто. Отсюда считается остаток тех сервисов,
 // которые его не отдают. Отдельной таблицей, а не полем: важна история —
 // «когда пополнял и сколько» человек спрашивает чаще, чем текущий остаток.
+// Курс ЦБ на день: сколько рублей за единицу валюты. Траты и доходы ведутся
+// в той валюте, в какой прошли, а в рубли переводятся по курсу своего дня.
+model FxRate {
+  day      String // YYYY-MM-DD
+  currency String // USD | THB | EUR
+  rub      Float
+  at       DateTime @default(now())
+
+  @@id([day, currency])
+}
+
 model WalletTopup {
   id      Int      @id @default(autoincrement())
   service String

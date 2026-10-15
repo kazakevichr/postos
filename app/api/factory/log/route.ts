@@ -40,6 +40,7 @@ export async function POST(req: Request) {
     error: b.error ?? row?.error ?? "",
     onDemand: Boolean(b.on_demand ?? row?.onDemand ?? false),
     cost: Number(b.cost ?? row?.cost ?? 0) || 0,
+    costDetail: b.cost_detail && typeof b.cost_detail === "object" ? JSON.stringify(b.cost_detail) : row?.costDetail || "",
     seconds: Math.round(Number(b.seconds ?? row?.seconds ?? 0)) || 0,
     at: b.at ? new Date(b.at) : row?.at ?? new Date(),
   };

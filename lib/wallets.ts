@@ -96,7 +96,7 @@ const SHARED_POOL = ["superfit", "moneyball", ENGINE];
 // проектами — по числу готовых роликов (честная прикидка: точнее, чем смета,
 // которая доходит до Постоса не со всех путей сборки). Нет в списке — сервис
 // нужен любому ролику.
-const SERVICE_KINDS: Record<string, string[]> = {
+export const SERVICE_KINDS: Record<string, string[]> = {
   heygen: ["avatar", "news", "forecast", "host"],
   eleven: ["avatar", "make", "trainer", "news", "forecast", "host"],
 };

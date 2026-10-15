@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { Fx } from "@/lib/fx";
+import { allocateShared } from "@/lib/shared";
 
 // Бухгалтерия: доходы, расходы и метрики эффективности за календарный месяц.
 //
@@ -6,12 +8,12 @@ import { prisma } from "@/lib/prisma";
 // принесло деньги, и то, куда и когда они ушли. Отсюда два следствия,
 // которые легко нарушить по невнимательности:
 //
-//  1. РАСХОДЫ ТОЛЬКО РУЧНЫЕ (решение Романа 02.09). Ни пополнения кошельков
-//     завода, ни начисления зарплаты сюда не подтягиваются: пополнение
-//     кошелька общее и не ложится на направление, а зарплата в таблице то
-//     есть, то нет — и то и другое давало картину, которой нельзя верить.
-//     Считаются только журнал денег и справочник постоянных платежей.
-//     Смета заказов завода осталась метрикой себестоимости ролика.
+//  1. РАСХОДЫ — ЖУРНАЛ ДЕНЕГ И ПОСТОЯННЫЕ ПЛАТЕЖИ. С 15.10.2026 (решение
+//     Романа) пополнения кошельков и подписки попадают сюда из кошельков
+//     сами, по дате оплаты, без размазывания на период. Общие траты (без
+//     направления) делятся между направлениями — см. lib/shared.ts.
+//     Зарплата — отдельный блок, сюда пока не входит.
+//     Каждая запись — в своей валюте, в рубли по курсу ЦБ своего дня (lib/fx).
 //
 //  2. Доля партнёра вычитается ещё внутри ownerProfitAmount. Если записать
 //     партнёрские выплаты в расходы, они посчитаются дважды. Поэтому верх
@@ -163,7 +165,6 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
   const ym = span.label;
   const months = monthsOf(span);
   const share = monthShare(span);
-  const fx = await fxUsd();
   const only = projectId ? { projectId } : {};
   const scoped = Boolean(projectId);
 
@@ -205,23 +206,38 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
       }),
     ]);
 
+  // Курс: каждая запись — по курсу своего дня; постоянные платежи — по
+  // курсу последнего дня периода (или сегодняшнему, если период не кончился).
+  const fxDay = dayOf(new Date(Math.min(end.getTime() - 1, Date.now())));
+  const FX = await Fx.load([fxDay, ...ledger.map((l) => dayOf(l.date))]);
+  const lrub = (l: { amount: number; currency: string; date: Date }) => FX.toRub(l.amount, l.currency, dayOf(l.date));
+  const rrub = (r: { amount: number; currency: string }) => FX.toRub(r.amount, r.currency, fxDay);
+  // Суммы в исходных валютах — показать рядом с рублёвым итогом.
+  const inCur: Record<string, number> = {};
+  const outCur: Record<string, number> = {};
+  for (const l of ledger) {
+    const t = l.kind === "in" ? inCur : outCur;
+    t[l.currency] = (t[l.currency] || 0) + l.amount;
+  }
+  for (const r of recurring) outCur[r.currency] = (outCur[r.currency] || 0) + r.amount * share;
+
   // ── Доходы ────────────────────────────────────────────────────────────
   const turnover = txs.reduce((s, t) => s + t.revenueAmount, 0);
   const partnersRevenue = txs.reduce((s, t) => s + t.ownerProfitAmount, 0);
   const otherIncome = ledger
     .filter((l) => l.kind === "in")
-    .reduce((s, l) => s + toRub(l.amount, l.currency, fx), 0);
+    .reduce((s, l) => s + lrub(l), 0);
   const income = partnersRevenue + otherIncome;
 
   // ── Расходы ───────────────────────────────────────────────────────────
   // Только то, что внесено руками: журнал денег плюс справочник постоянных
   // платежей. Ничего не подтягивается со стороны — см. заметку наверху файла.
-  const recurringRub = recurring.reduce((s, r) => s + toRub(r.amount, r.currency, fx), 0) * share;
+  const recurringRub = recurring.reduce((s, r) => s + rrub(r), 0) * share;
 
   const out = ledger.filter((l) => l.kind === "out");
   const byCategory = new Map<string, number>();
   for (const l of out) {
-    byCategory.set(l.category, (byCategory.get(l.category) || 0) + toRub(l.amount, l.currency, fx));
+    byCategory.set(l.category, (byCategory.get(l.category) || 0) + lrub(l));
   }
   const ads = byCategory.get("реклама") || 0;
 
@@ -251,12 +267,30 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
     manual: true,
   });
 
+  // Срез направления: его доля общих трат (общий HeyGen, роутер, сервер) —
+  // иначе MoneyBall выглядел бесплатным, хотя жжёт общие сервисы.
+  let sharedParts: { title: string; amount: number; rule: string }[] = [];
+  if (scoped && !light) {
+    const split = await projectSplit(span);
+    const mine = split.rows.find((r) => r.id === projectId);
+    if (mine && mine.shared > 0) {
+      sharedParts = mine.sharedParts;
+      rows.push({
+        key: "shared",
+        label: "Доля общих расходов",
+        amount: mine.shared,
+        source: "общие сервисы и сервер, разнесены по правилам",
+        manual: false,
+      });
+    }
+  }
+
   const costs = rows.reduce((s, r) => s + r.amount, 0);
   const profit = round(income) - costs;
 
   // ── Метрики эффективности ─────────────────────────────────────────────
-  const jobsCost = jobs.reduce((s, j) => s + j.cost, 0); // смета в долларах
-  const videoCost = jobs.length ? round((jobsCost * fx) / jobs.length) : null;
+  const jobsCost = jobs.reduce((s, j) => s + j.cost, 0); // замер или восстановлено, в долларах
+  const videoCost = jobs.length ? round(FX.toRub(jobsCost, "USD", fxDay) / jobs.length) : null;
 
   const kpiForNew = newPartners.reduce(
     (s, p) => s + (p.partnerType?.kpiAmount ?? p.project.kpiAmount),
@@ -291,13 +325,13 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
     for (const t of txs) at(day(t.date)).in += t.ownerProfitAmount;
     for (const l of ledger) {
       const v = at(day(l.date));
-      const rub = toRub(l.amount, l.currency, fx);
+      const rub = lrub(l);
       if (l.kind === "in") v.in += rub;
       else v.out += rub;
     }
     // Постоянные платежи размазываем ровным слоем по дням месяца — иначе
     // график врал бы, показывая сервер как всплеск первого числа.
-    const perDay = recurring.reduce((s, r) => s + toRub(r.amount, r.currency, fx), 0) / 30;
+    const perDay = recurring.reduce((s, r) => s + rrub(r), 0) / 30;
     for (const v of byDay.values()) v.out += perDay;
 
     const daily = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -329,12 +363,34 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
     }
   }
 
+  // У пополнения кошелька — сколько на нём сейчас и на сколько хватит при
+  // нынешнем расходе: подсказка к трате, не часть расчёта.
+  const lasts = new Map<number, string>();
+  if (!light) {
+    const ids = ledger.filter((l) => l.externalId?.startsWith("topup:")).map((l) => Number(l.externalId!.slice(6)));
+    if (ids.length) {
+      const { wallets } = await import("@/lib/wallets");
+      const tops = await prisma.walletTopup.findMany({ where: { id: { in: ids } }, select: { id: true, service: true } });
+      const ws = new Map((await wallets("all")).map((w) => [w.service, w]));
+      for (const t of tops) {
+        const w = ws.get(t.service);
+        if (!w || w.balance == null) continue;
+        const bal = w.unit === "$" ? `$${w.balance}` : `${w.balance} ${w.unit}`;
+        lasts.set(t.id, `сейчас на балансе ${bal}` + (w.daysLeft != null ? ` · хватит ~${w.daysLeft} дн.` : ""));
+      }
+    }
+  }
+
   return {
     month: ym,
     periodType: span.type,
     series,
     prev,
-    fx,
+    fx: FX.rate("USD", fxDay),
+    rates: FX.ratesOn(fxDay),
+    fxDay,
+    currencies: { income: inCur, costs: outCur },
+    sharedParts,
     projectId: projectId || null,
     scoped,
     income: {
@@ -361,6 +417,7 @@ export async function monthMoney(span: Span, projectId?: string, light = false) 
       payback,
     },
     ledger: ledger.map((l) => ({
+      lasts: l.externalId?.startsWith("topup:") ? lasts.get(Number(l.externalId.slice(6))) || "" : "",
       id: l.id,
       kind: l.kind,
       date: dayOf(l.date),
@@ -400,20 +457,16 @@ function plural(n: number, one: string, few: string, many: string) {
 }
 
 /**
- * Сводка по направлениям за месяц: сколько каждое принесло и сколько съело
- * своими, прямыми расходами. Общие — сервер, завод, зарплата без проекта —
- * идут отдельной строкой и ни по кому не размазываются: правило разнесения
- * никто не выбирал, а придуманное молча искажает картину сильнее, чем
- * честная строка «общие».
+ * Сводка по направлениям: доход, свои расходы, доля общих и прибыль.
  *
- * Поэтому в таблице «вклад», а не «прибыль»: это то, что направление даёт
- * компании до общих расходов.
+ * Общие траты (без направления) делятся по правилам lib/shared.ts: сервисы
+ * завода — по расходу роликов, сервер и прочее — по выручке. Строка «Общие»
+ * остаётся только для того, что разнести не на что опереться.
  */
 export async function projectSplit(span: Span) {
   const { start, end } = span;
   const months = monthsOf(span);
   const share = monthShare(span);
-  const fx = await fxUsd();
 
   const [projects, txs, ledger, recurring] = await Promise.all([
     prisma.project.findMany({
@@ -433,6 +486,8 @@ export async function projectSplit(span: Span) {
       },
     }),
   ]);
+  const fxDay = dayOf(new Date(Math.min(end.getTime() - 1, Date.now())));
+  const FX = await Fx.load([fxDay, ...ledger.map((l) => dayOf(l.date))]);
 
   const SHARED = "";
   const bucket = new Map<string, { income: number; direct: number }>();
@@ -443,31 +498,64 @@ export async function projectSplit(span: Span) {
     return b;
   };
 
+  // Пополнения из кошельков знают свой сервис — по нему и делятся.
+  const topupIds = ledger
+    .filter((l) => l.source === "кошелёк" && l.externalId?.startsWith("topup:"))
+    .map((l) => Number(l.externalId!.slice(6)));
+  const topups = topupIds.length
+    ? await prisma.walletTopup.findMany({ where: { id: { in: topupIds } }, select: { id: true, service: true } })
+    : [];
+  const walletOfTopup = new Map(topups.map((t) => [t.id, t.service]));
+
+  const sharedItems: { title: string; rub: number; day: string; wallet: string | null }[] = [];
   for (const t of txs) slot(t.partner.projectId).income += t.ownerProfitAmount;
   for (const l of ledger) {
-    const rub = toRub(l.amount, l.currency, fx);
+    const rub = FX.toRub(l.amount, l.currency, dayOf(l.date));
     if (l.kind === "in") slot(l.projectId).income += rub;
-    else slot(l.projectId).direct += rub;
+    else if (l.projectId) slot(l.projectId).direct += rub;
+    else {
+      const wallet = l.externalId?.startsWith("topup:") ? walletOfTopup.get(Number(l.externalId.slice(6))) || null : null;
+      sharedItems.push({ title: l.title, rub, day: dayOf(l.date), wallet });
+    }
   }
-  for (const r of recurring) slot(r.projectId).direct += toRub(r.amount, r.currency, fx) * share;
+  for (const r of recurring) {
+    const rub = FX.toRub(r.amount, r.currency, fxDay) * share;
+    if (r.projectId) slot(r.projectId).direct += rub;
+    else sharedItems.push({ title: r.title, rub, day: fxDay, wallet: r.wallet || null });
+  }
+
+  const income = new Map(projects.map((p) => [p.id, bucket.get(p.id)?.income || 0]));
+  const { byProject, unallocated } = await allocateShared(sharedItems, income);
 
   const rows = projects.map((p) => {
     const b = bucket.get(p.id) || { income: 0, direct: 0 };
-    const income = round(b.income);
+    const sh = byProject.get(p.id);
+    const inc = round(b.income);
     const direct = round(b.direct);
+    const shared = round(sh?.amount || 0);
     return {
       id: p.id,
       name: p.name,
-      income,
+      income: inc,
       direct,
-      contribution: income - direct,
-      margin: income > 0 ? Math.round(((income - direct) / income) * 1000) / 10 : null,
+      shared,
+      sharedParts: sh?.parts || [],
+      contribution: inc - direct,
+      profit: inc - direct - shared,
+      margin: inc > 0 ? Math.round(((inc - direct - shared) / inc) * 1000) / 10 : null,
     };
   });
 
-  const shared = bucket.get(SHARED) || { income: 0, direct: 0 };
+  const sharedTotal = round(sharedItems.reduce((a, x) => a + x.rub, 0));
+  const left = round(unallocated.reduce((a, x) => a + x.amount, 0));
   return {
     rows,
-    shared: { income: round(shared.income), direct: round(shared.direct) },
+    shared: {
+      income: round(bucket.get(SHARED)?.income || 0),
+      direct: left,
+      total: sharedTotal,
+      allocated: sharedTotal - left,
+      unallocated,
+    },
   };
 }

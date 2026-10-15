@@ -63,13 +63,13 @@ export async function topupToLedger(t: {
     where: { source_externalId: { source: SOURCE, externalId: `topup:${t.id}` } },
     create: {
       kind: "out", date: t.at, category: "сервис", title, amount: t.paid ?? t.amount,
-      currency: t.paid != null && t.paidCurrency === "RUB" ? "RUB" : "USD",
+      currency: t.paid != null ? t.paidCurrency || "USD" : "USD",
       note: [t.note, t.who].filter(Boolean).join(" · "), projectId: await projectOfWallet(t.service),
       source: SOURCE, externalId: `topup:${t.id}`,
     },
     update: {
       amount: t.paid ?? t.amount, date: t.at, title,
-      currency: t.paid != null && t.paidCurrency === "RUB" ? "RUB" : "USD",
+      currency: t.paid != null ? t.paidCurrency || "USD" : "USD",
     },
   });
 }

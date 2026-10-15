@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       title: String(b.title).trim(),
       category: String(b.category || "сервис"),
       amount,
-      currency: b.currency === "USD" ? "USD" : "RUB",
+      currency: ["USD", "THB", "EUR"].includes(b.currency) ? b.currency : "RUB",
       fromMonth,
       toMonth: isMonth(b.toMonth) ? b.toMonth : null,
       projectId: access.projectId,

@@ -130,15 +130,13 @@ export default function EconomicsView({
           <div>
             <h1 className="text-xl font-bold">Бухгалтерия</h1>
             <p className="text-sm text-gray-500">
-              {monthTitle(d.month)} · курс {d.fx.toLocaleString("ru-RU")} ₽/$
+              {monthTitle(d.month)} · курс ЦБ на {d.fxDay?.slice(8)}.{d.fxDay?.slice(5, 7)}:{" "}
+              {Object.entries(d.rates || {}).map(([c, v]: any) => `${SIGN[c]} ${Number(v).toLocaleString("ru-RU")}`).join(" · ")}
               {d.projectName ? ` · ${d.projectName}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <PeriodPicker value={range} onChange={setRange} />
-            {canEdit && (
-              <FxInput fx={d.fx} busy={busy} onSave={(fx) => send("/api/economics", "POST", { fx })} />
-            )}
             {canEdit && <button
               className="btn btn-secondary text-xs"
               disabled={busy}
@@ -173,22 +171,20 @@ export default function EconomicsView({
           <Kpi
             label="Доход компании"
             value={fmt(d.income.total)}
-            hint={d.income.other ? `в том числе ${fmt(d.income.other)} прочих` : "продажи партнёров"}
+            hint={foreign(d.currencies?.income) || (d.income.other ? `в том числе ${fmt(d.income.other)} прочих` : "продажи партнёров")}
             delta={delta(d.income.total, d.prev?.income)}
           />
           <Kpi
             label="Расходы"
             value={fmt(d.costs.total)}
-            hint="всё, что внесено руками"
+            hint={foreign(d.currencies?.costs) || (d.scoped ? "свои и доля общих" : "журнал и постоянные платежи")}
             delta={delta(d.costs.total, d.prev?.costs, true)}
           />
           <Kpi
-            label={d.scoped ? "Вклад направления" : "Прибыль"}
+            label="Прибыль"
             value={fmt(d.profit)}
             hint={
-              d.scoped
-                ? "до общих расходов — сервер и завод общие"
-                : d.margin == null
+              d.margin == null
                   ? "дохода за период нет"
                   : `рентабельность ${d.margin.toLocaleString("ru-RU")} %`
             }
@@ -207,7 +203,7 @@ export default function EconomicsView({
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
             <h2 className="font-semibold">По направлениям</h2>
             <span className="text-xs text-gray-400">
-              вклад — это доход минус свои расходы, до общих
+              прибыль — доход минус свои расходы и доля общих
             </span>
           </div>
           <table className="w-full text-sm">
@@ -216,7 +212,8 @@ export default function EconomicsView({
                 <th className="text-left font-medium pb-2">Направление</th>
                 <th className="text-right font-medium pb-2">Доход</th>
                 <th className="text-right font-medium pb-2">Свои расходы</th>
-                <th className="text-right font-medium pb-2">Вклад</th>
+                <th className="text-right font-medium pb-2">Доля общих</th>
+                <th className="text-right font-medium pb-2">Прибыль</th>
                 <th className="text-right font-medium pb-2">Рентабельность</th>
               </tr>
             </thead>
@@ -228,32 +225,35 @@ export default function EconomicsView({
                   </td>
                   <td className="py-2 text-right tabular-nums">{fmt(r.income)}</td>
                   <td className="py-2 text-right tabular-nums text-gray-500">{fmt(r.direct)}</td>
-                  <td className={`py-2 text-right tabular-nums ${r.contribution < 0 ? "text-red-700" : ""}`}>
-                    {fmt(r.contribution)}
+                  <td className="py-2 text-right tabular-nums text-gray-500"
+                      title={(r.sharedParts || []).map((x: any) => `${x.title}: ${fmt(x.amount)} — ${x.rule}`).join("\n")}>
+                    {r.shared ? <span className="border-b border-dotted border-gray-300 cursor-help">{fmt(r.shared)}</span> : "—"}
+                  </td>
+                  <td className={`py-2 text-right tabular-nums ${r.profit < 0 ? "text-red-700" : ""}`}>
+                    {fmt(r.profit)}
                   </td>
                   <td className="py-2 text-right tabular-nums text-gray-500">
                     {r.margin == null ? "—" : `${r.margin.toLocaleString("ru-RU")} %`}
                   </td>
                 </tr>
               ))}
-              <tr className="border-t border-gray-100 text-gray-500">
-                <td className="py-2">
-                  Общие
-                  <span className="text-xs text-gray-400 ml-2">сервер, завод, зарплата без направления</span>
-                </td>
-                <td className="py-2 text-right tabular-nums">
-                  {d.split.shared.income ? fmt(d.split.shared.income) : "—"}
-                </td>
-                <td className="py-2 text-right tabular-nums">{fmt(d.split.shared.direct)}</td>
-                <td className="py-2 text-right tabular-nums">
-                  {fmt(d.split.shared.income - d.split.shared.direct)}
-                </td>
-                <td className="py-2 text-right">—</td>
-              </tr>
+              {(d.split.shared.direct > 0 || d.split.shared.income > 0) && (
+                <tr className="border-t border-gray-100 text-gray-500">
+                  <td className="py-2" title={(d.split.shared.unallocated || []).map((x: any) => `${x.title}: ${fmt(x.amount)} — ${x.rule}`).join("\n")}>
+                    Не разнесено
+                    <span className="text-xs text-gray-400 ml-2">общие траты, которые не на что опереться</span>
+                  </td>
+                  <td className="py-2 text-right tabular-nums">{d.split.shared.income ? fmt(d.split.shared.income) : "—"}</td>
+                  <td className="py-2 text-right tabular-nums">—</td>
+                  <td className="py-2 text-right tabular-nums">{fmt(d.split.shared.direct)}</td>
+                  <td className="py-2 text-right tabular-nums">{fmt(d.split.shared.income - d.split.shared.direct)}</td>
+                  <td className="py-2 text-right">—</td>
+                </tr>
+              )}
               <tr className="border-t border-gray-300 font-semibold">
                 <td className="py-2">Итого</td>
                 <td className="py-2 text-right tabular-nums">{fmt(d.income.total)}</td>
-                <td className="py-2 text-right tabular-nums">{fmt(d.costs.total)}</td>
+                <td className="py-2 text-right tabular-nums" colSpan={2}>{fmt(d.costs.total)}</td>
                 <td className="py-2 text-right tabular-nums">{fmt(d.profit)}</td>
                 <td className="py-2 text-right tabular-nums">
                   {d.margin == null ? "—" : `${d.margin.toLocaleString("ru-RU")} %`}
@@ -340,7 +340,7 @@ export default function EconomicsView({
             form={
               d.units.videoCost == null
                 ? "завод не выпускал роликов со сметой"
-                : `$${d.units.jobsUsd} по смете ÷ ${d.units.videos} шт.`
+                : `$${d.units.jobsUsd} по замерам ÷ ${d.units.videos} шт.`
             }
           />
           <Unit
@@ -366,7 +366,7 @@ export default function EconomicsView({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Recurring rows={d.recurring} month={d.month} fx={d.fx} busy={busy} send={send} canEdit={canEdit} />
+        <Recurring rows={d.recurring} month={d.month} rates={d.rates} busy={busy} send={send} canEdit={canEdit} />
         <Journal rows={d.ledger} month={d.month} busy={busy} send={send} canEdit={canEdit} />
       </div>
     </div>
@@ -376,6 +376,19 @@ export default function EconomicsView({
 // График по дням — как в «Соц.Сетях»: один столбец на день, синее сверху,
 // зелёное снизу. Шкала общая у обеих величин: доход и расход сравнимы между
 // собой напрямую, и разная шкала показывала бы неправду.
+const SIGN: Record<string, string> = { RUB: "₽", USD: "$", THB: "฿", EUR: "€" };
+/** Сумма в своей валюте: $150, 5 150 ฿, 3 000 ₽. */
+function money(amount: number, currency: string) {
+  if (currency === "USD") return `$${amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}`;
+  if (currency === "RUB") return fmt(amount);
+  return `${amount.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${SIGN[currency] || currency}`;
+}
+/** «в т. ч. $150 · 5 150 ฿» — то, что пришло или ушло не в рублях. */
+function foreign(t: Record<string, number> | undefined) {
+  const parts = Object.entries(t || {}).filter(([c, v]) => c !== "RUB" && v).map(([c, v]) => money(Math.round(v * 100) / 100, c));
+  return parts.length ? `в т. ч. ${parts.join(" · ")}` : "";
+}
+
 function Chart({ series }: { series: { date: string; in: number; out: number }[] }) {
   const max = Math.max(1, ...series.map((p) => Math.max(p.in, p.out)));
   const label = (iso: string) =>
@@ -469,34 +482,14 @@ function Unit({ label, value, form }: { label: string; value: string | null; for
   );
 }
 
-function FxInput({ fx, busy, onSave }: { fx: number; busy: boolean; onSave: (fx: number) => void }) {
-  const [v, setV] = useState(String(fx));
-  useEffect(() => setV(String(fx)), [fx]);
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        className="input w-20 text-xs"
-        value={v}
-        onChange={(e) => setV(e.target.value)}
-        aria-label="Курс доллара"
-      />
-      <button
-        className="btn btn-secondary text-xs"
-        disabled={busy || v === String(fx)}
-        onClick={() => onSave(Number(v.replace(",", ".")))}
-      >
-        курс
-      </button>
-    </div>
-  );
-}
-
-function Recurring({ rows, month, fx, busy, send, canEdit }: any) {
+function Recurring({ rows, month, rates, busy, send, canEdit }: any) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ title: "", amount: "", currency: "RUB" });
   // Долларовые подписки — по курсу периода: раньше они в итог не входили
   // вовсе, и «в месяц» выходило на треть меньше настоящего.
-  const sum = rows.reduce((s: number, r: any) => s + (r.currency === "USD" ? r.amount * (fx || 0) : r.amount), 0);
+  // Действующие платежи по курсу ЦБ; закрытые в итог месяца не входят.
+  const live = rows.filter((r: any) => !r.toMonth || r.toMonth > month.slice(0, 7));
+  const sum = live.reduce((s: number, r: any) => s + r.amount * (r.currency === "RUB" ? 1 : rates?.[r.currency] || 0), 0);
 
   return (
     <div className="card">
@@ -525,11 +518,12 @@ function Recurring({ rows, month, fx, busy, send, canEdit }: any) {
                   )}
                 </td>
                 <td className="py-2 text-right tabular-nums whitespace-nowrap">
-                  {r.currency === "USD" ? `$${r.amount}` : fmt(r.amount)}
+                  {money(r.amount, r.currency)}
+                  {r.toMonth && <div className="text-[11px] text-gray-400">последний месяц {r.toMonth.slice(5)}.{r.toMonth.slice(0, 4)}</div>}
                 </td>
                 {canEdit && (
                   <td className="py-2 pl-3 text-right">
-                    {!r.wallet && <button
+                    {!r.wallet && !r.toMonth && <button
                       className="text-xs text-gray-400 hover:text-red-600"
                       disabled={busy}
                       onClick={() => send("/api/economics/recurring", "PATCH", { id: r.id, toMonth: month })}
@@ -542,7 +536,7 @@ function Recurring({ rows, month, fx, busy, send, canEdit }: any) {
               </tr>
             ))}
             <tr className="border-t border-gray-300 font-semibold">
-              <td className="py-2">В месяц <span className="text-xs font-normal text-gray-400">доллары по курсу {fx}</span></td>
+              <td className="py-2">В месяц <span className="text-xs font-normal text-gray-400">валюта по курсу ЦБ</span></td>
               <td className="py-2 text-right tabular-nums">{fmt(sum)}</td>
               <td />
             </tr>
@@ -571,6 +565,8 @@ function Recurring({ rows, month, fx, busy, send, canEdit }: any) {
           >
             <option value="RUB">₽</option>
             <option value="USD">$</option>
+            <option value="THB">฿</option>
+            <option value="EUR">€</option>
           </select>
           <button
             className="btn btn-primary"
@@ -628,7 +624,8 @@ function Journal({ rows, month, busy, send, canEdit }: any) {
                 </td>
                 <td className={`py-2 text-right tabular-nums whitespace-nowrap ${r.kind === "in" ? "text-green-700" : ""}`}>
                   {r.kind === "in" ? "+" : "−"}
-                  {r.currency === "USD" ? `$${r.amount}` : fmt(r.amount)}
+                  {money(r.amount, r.currency)}
+                  {r.lasts && <div className="text-[11px] text-gray-400 font-normal">{r.lasts}</div>}
                 </td>
                 <td className="py-2 pl-3 text-right">
                   {r.source === "руками" ? (
@@ -690,6 +687,8 @@ function Journal({ rows, month, busy, send, canEdit }: any) {
         <select className="input w-16" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}>
           <option value="RUB">₽</option>
           <option value="USD">$</option>
+          <option value="THB">฿</option>
+          <option value="EUR">€</option>
         </select>
         <button
           className="btn btn-primary"
