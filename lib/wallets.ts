@@ -290,7 +290,7 @@ export const SERVICES: Record<
     title: "TalorData — поиск заводов",
     unit: "кредитов",
     blocks: false,
-    link: "https://talordata.net",
+    link: "https://dashboard.talordata.com",
     api: "остаток не отдаёт · доступ проверяется пробным запросом",
   },
   oracle_talor: {
@@ -298,7 +298,7 @@ export const SERVICES: Record<
     title: "TalorData — поиск сайта Оракла",
     unit: "кредитов",
     blocks: false,
-    link: "https://talordata.net",
+    link: "https://dashboard.talordata.com",
     api: "остаток не отдаёт · доступ проверяется пробным запросом",
   },
   oracle_uploadpost: {
