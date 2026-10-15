@@ -333,8 +333,12 @@ export default function WalletsBoard({
                         <span className="ml-2 text-xs font-normal text-gray-400">не активен</span>
                       )}
                     </div>
-                    {r.shared && (
-                      <div className="text-[11px] text-brand-700 mt-0.5 max-w-xs">общий: {r.users.join(", ")}</div>
+                    {/* Чей кошелёк — всегда: в сводке рядом стоят два «Роутера»,
+                        и без подписи не понять, какой из них Оракла. */}
+                    {r.users.length > 0 && (
+                      <div className="text-[11px] text-brand-700 mt-0.5 max-w-xs">
+                        {r.shared ? "общий" : "проект"}: {r.users.join(", ")}
+                      </div>
                     )}
                     {r.note && <div className="text-xs text-gray-500 mt-0.5 max-w-xs">{r.note}</div>}
                     {r.needManual && (
