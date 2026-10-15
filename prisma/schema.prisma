@@ -484,6 +484,9 @@ model FactoryOrder {
   file       String    @default("")
   error      String    @default("")
   cost       Float     @default(0)
+  // Из чего сложилась стоимость: {heygen, router, voice, total} в долларах —
+  // разница остатков сервисов до и после сборки (meter.py заводов).
+  costDetail String    @default("")
   seconds    Int       @default(0)
   takenAt    DateTime?
   doneAt     DateTime?

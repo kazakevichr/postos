@@ -442,6 +442,7 @@ export async function report(brand: string, id: string, body: any) {
         file: String(body.file || ""),
         seconds: Math.round(Number(body.seconds || 0)) || 0,
         cost: Number(body.cost || 0) || 0,
+        costDetail: body.cost_detail && typeof body.cost_detail === "object" ? JSON.stringify(body.cost_detail) : "",
       },
     });
     await savePicks(brand, id, body.picks);

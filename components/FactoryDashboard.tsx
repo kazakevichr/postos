@@ -142,6 +142,7 @@ export default function FactoryDashboard({
       if (j.event === "не принят" || j.event === "брак") s.rejected++;
       if (j.event === "ошибка") s.failed++;
       s.cost += j.cost || 0;
+      if (j.cost > 0) s.costN = (s.costN || 0) + 1;
       if (j.seconds) { s.secSum = (s.secSum || 0) + j.seconds; s.secN = (s.secN || 0) + 1; }
     }
     return Object.values(byKind);
@@ -217,7 +218,7 @@ export default function FactoryDashboard({
                 <thead><tr className="text-left text-gray-500">
                   <th className="py-1 pr-4">Тип</th><th className="py-1 pr-4">Всего</th>
                   <th className="py-1 pr-4">Опубликовано</th><th className="py-1 pr-4">Не принято</th>
-                  <th className="py-1 pr-4">Ошибки<Hint text="Производство упало с ошибкой — до публикации дело не дошло." /></th><th className="py-1 pr-4">Ср. время<Hint text="Среднее время производства одного ролика: от старта до готовности, по тем заказам, где завод прислал длительность." /></th><th className="py-1">Стоимость<Hint text="Суммарный расход на нейросети по этому типу за выбранный период." /></th>
+                  <th className="py-1 pr-4">Ошибки<Hint text="Производство упало с ошибкой — до публикации дело не дошло." /></th><th className="py-1 pr-4">Ср. время<Hint text="Среднее время производства одного ролика: от старта до готовности, по тем заказам, где завод прислал длительность." /></th><th className="py-1 pr-4">Стоимость<Hint text="Суммарный расход на нейросети по этому типу за выбранный период." /></th><th className="py-1">За ролик<Hint text="Средняя цена одного ролика: разница остатков сервисов (оживление, тексты, озвучка) до и после сборки. Считается по роликам, где завод прислал стоимость." /></th>
                 </tr></thead>
                 <tbody>
                   {stats.map((s: any) => (
@@ -228,7 +229,8 @@ export default function FactoryDashboard({
                       <td className="py-1.5 pr-4 text-yellow-700">{s.rejected}</td>
                       <td className="py-1.5 pr-4 text-red-700">{s.failed}</td>
                       <td className="py-1.5 pr-4">{s.secN ? `${Math.round(s.secSum / s.secN / 60)} мин` : "—"}</td>
-                      <td className="py-1.5">{s.cost ? `$${s.cost.toFixed(2)}` : "—"}</td>
+                      <td className="py-1.5 pr-4">{s.cost ? `$${s.cost.toFixed(2)}` : "—"}</td>
+                      <td className="py-1.5 font-medium">{s.costN ? `$${(s.cost / s.costN).toFixed(2)}` : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

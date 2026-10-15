@@ -313,6 +313,7 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
                   <span>{o.label}</span>
                   {o.topic && <span className="text-gray-600 truncate max-w-md">{o.topic}</span>}
                   {o.seconds > 0 && <span className="text-xs text-gray-400">{Math.round(o.seconds / 60)} мин</span>}
+                  {o.cost > 0 && <CostTag cost={o.cost} detail={o.costDetail} />}
                   {o.error && <span className="text-xs text-red-600 truncate max-w-md">{o.error}</span>}
                   {o.state === "на согласовании" && (
                     <div className="basis-full mt-1">
@@ -778,5 +779,23 @@ export default function FactoryPanel({ canManage = false }: { canManage?: boolea
         );
       })()}
     </div>
+  );
+}
+
+// Цена ролика и из чего она сложилась — разница остатков сервисов до и
+// после сборки. Ключи общие у заводов: если рядом собирался другой ролик,
+// цифра примерная.
+function CostTag({ cost, detail }: { cost: number; detail?: string }) {
+  let d: any = {};
+  try { d = JSON.parse(detail || "{}"); } catch {}
+  const parts = [
+    d.heygen != null && `оживление $${Number(d.heygen).toFixed(2)}`,
+    d.router != null && `тексты и картинки $${Number(d.router).toFixed(2)}`,
+    d.voice != null && `озвучка $${Number(d.voice).toFixed(2)}`,
+  ].filter(Boolean).join(" · ");
+  return (
+    <span className="text-xs text-gray-500 tabular-nums" title={parts || "стоимость ролика"}>
+      ${cost.toFixed(2)}
+    </span>
   );
 }
